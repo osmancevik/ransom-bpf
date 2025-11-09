@@ -4,7 +4,7 @@ cmake_minimum_required(VERSION 3.16)
 # Define the project name
 project(hello_ebpf C)
 
-# Set the C standard to C11
+# Set the C standard to C23
 set(CMAKE_C_STANDARD 23)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
