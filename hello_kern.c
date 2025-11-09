@@ -1,9 +1,11 @@
 /*
- * hello_kern.c: Minimal eBPF program to log execve syscalls.
+ * hello_kern.c: eBPF program to capture execve syscalls
+ * and send data to user-space via a Ring Buffer.
  *
  * This program attaches to the 'sys_enter_execve' tracepoint
- * and prints a simple "Hello eBPF!" message to the kernel trace pipe
- * every time an execve() syscall is executed.
+ * and, upon execution, it populates a 'struct event' with
+ * the PID, process name, and filename, submitting it to
+ * a ring buffer map.
  */
 
 /*
@@ -13,6 +15,24 @@
  */
 #include "vmlinux.h"
 #include <bpf/bpf_helpers.h>
+#include "common.h" // Include our shared data structure
+
+/*
+ * The Ring Buffer Map.
+ *
+ * This is the shared memory area between the eBPF program (producer)
+ * and the user-space agent (consumer).
+ *
+ * 'BPF_MAP_TYPE_RINGBUF' defines the map type.
+ * 'max_entries' defines the total size of the buffer (e.g., 256KB).
+ *
+ * The 'SEC(".maps")' annotation is crucial for libbpf to find
+ * and initialize this map.
+ */
+struct {
+    __uint(type, BPF_MAP_TYPE_RINGBUF);
+    __uint(max_entries, 256 * 1024); // 256 KB
+} rb SEC(".maps");
 
 /*
  * The SEC("...") macro defines the section name for the eBPF program.
@@ -23,15 +43,32 @@
 SEC("tracepoint/syscalls/sys_enter_execve")
 int handle_execve_enter(struct trace_event_raw_sys_enter* ctx)
 {
-    /*
-     * bpf_printk:
-     * A simple helper macro (from bpf_helpers.h) to print messages
-     * to the kernel trace pipe.
-     *
-     * You can read this output in the CLion terminal with:
-     * sudo cat /sys/kernel/debug/tracing/trace_pipe
-     */
-    bpf_printk("Hello eBPF! execve syscall detected.\n");
+    struct event *event;
+    __u64 pid_tgid;
+    const char *filename_ptr;
+
+    // 1. Reserve space on the ring buffer
+    // This returns a pointer to the buffer's memory where we can write our data.
+    event = bpf_ringbuf_reserve(&rb, sizeof(*event), 0);
+    if (!event) {
+        // Not enough space in the buffer, skip this event
+        return 0;
+    }
+
+    // 2. Get basic process info
+    pid_tgid = bpf_get_current_pid_tgid();
+    event->pid = (__u32)(pid_tgid >> 32); // Get the TGID (user-space PID)
+    bpf_get_current_comm(&event->comm, sizeof(event->comm));
+
+    // 3. Get the filename being executed
+    // The filename pointer is the first argument (args[0]) of execve.
+    // This is a user-space pointer, so we must read it safely.
+    filename_ptr = (const char *)ctx->args[0];
+    bpf_probe_read_user_str(&event->filename, sizeof(event->filename), filename_ptr);
+
+    // 4. Submit the event to the ring buffer
+    // This makes the data available for the user-space agent to read.
+    bpf_ringbuf_submit(event, 0);
 
     /*
      * All eBPF programs must return an integer.
