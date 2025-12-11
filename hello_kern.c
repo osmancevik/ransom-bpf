@@ -1,3 +1,4 @@
+/* hello_kern.c - Çekirdek Alanı */
 #include "vmlinux.h"
 #include <bpf/bpf_helpers.h>
 #include "common.h"
@@ -21,12 +22,9 @@ static __always_inline void send_event(void *ctx, int type, const char *filename
     e->pid = (__u32)(pid_tgid >> 32);
     bpf_get_current_comm(&e->comm, sizeof(e->comm));
 
-    if (filename_ptr)
-    {
+    if (filename_ptr) {
         bpf_probe_read_user_str(&e->filename, sizeof(e->filename), filename_ptr);
-    }
-    else
-    {
+    } else {
         e->filename[0] = '\0';
     }
 
@@ -57,7 +55,7 @@ int handle_openat_enter(struct trace_event_raw_sys_enter* ctx)
     return 0;
 }
 
-// 4. RENAMEAT (Eski Sistemler İçin)
+// 4. RENAMEAT (Eski)
 SEC("tracepoint/syscalls/sys_enter_renameat")
 int handle_renameat_enter(struct trace_event_raw_sys_enter* ctx)
 {
@@ -65,13 +63,19 @@ int handle_renameat_enter(struct trace_event_raw_sys_enter* ctx)
     return 0;
 }
 
-// 5. RENAMEAT2 (Modern Sistemler ve mv komutu İçin) - YENİ EKLENDİ
+// 5. RENAMEAT2 (Modern - mv komutu için)
 SEC("tracepoint/syscalls/sys_enter_renameat2")
 int handle_renameat2_enter(struct trace_event_raw_sys_enter* ctx)
 {
-    // renameat2 argümanları renameat ile uyumludur:
-    // args[1] = oldname (değişecek dosya)
     send_event(ctx, EVENT_RENAME, (const char *)ctx->args[1]);
+    return 0;
+}
+
+// 6. EXIT (Temizlik için)
+SEC("tracepoint/sched/sched_process_exit")
+int handle_exit(void *ctx)   // <--- DÜZELTME BURADA (struct ... yerine void *ctx)
+{
+    send_event(ctx, EVENT_EXIT, NULL);
     return 0;
 }
 

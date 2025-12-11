@@ -6,7 +6,8 @@ enum event_type {
     EVENT_EXEC = 1,
     EVENT_WRITE = 2,
     EVENT_OPEN = 3,
-    EVENT_RENAME = 4  // YENİ: Dosya adı değiştirme
+    EVENT_RENAME = 4,
+    EVENT_EXIT = 5
 };
 
 #define TASK_COMM_LEN 16
@@ -14,7 +15,7 @@ enum event_type {
 
 struct event {
     int type;
-    __u32 pid;
+    unsigned int pid;            // <--- DÜZELTME BURADA (__u32 -> unsigned int)
     char comm[TASK_COMM_LEN];
     char filename[MAX_FILENAME_LEN];
 };

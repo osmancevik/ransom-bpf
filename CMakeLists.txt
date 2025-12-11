@@ -63,10 +63,16 @@ target_include_directories(kern_ide_helper
         ${CMAKE_CURRENT_BINARY_DIR}
 )
 
-
 # --- 3. Define User-Space C Agent Build ---
 
-set(USER_SRC ${CMAKE_CURRENT_SOURCE_DIR}/hello_user.c)
+# hello_user.c yerine yeni dosyaları ekliyoruz
+set(USER_SRC
+        ${CMAKE_CURRENT_SOURCE_DIR}/main.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/state_manager.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/detector.c
+        # logger.h header olduğu için kaynak dosyaya eklemeye gerek yok ama IDE için iyi olur
+)
+
 
 # Add the user-space executable target
 add_executable(hello_ebpf ${USER_SRC})
@@ -93,5 +99,5 @@ target_link_libraries(hello_ebpf
         ${LIBELF_LIBRARIES}
 )
 
-# --- 4. (Optional) Install ---
+# --- 4. (Optional) Install) ---
 install(TARGETS hello_ebpf DESTINATION bin)
