@@ -9,6 +9,7 @@
 #include "logger.h"
 #include "state_manager.h"
 #include "detector.h"
+#include "config.h"
 
 static int own_pid = 0;
 static volatile bool exiting = false;
@@ -53,7 +54,10 @@ int main(int argc, char **argv) {
     int err;
 
     own_pid = getpid();
+    load_config("ransom.conf");
+    init_logger();
     libbpf_set_print(print_libbpf_log);
+    LOG_INFO("eBPF Ajan Baslatildi (PID: %d).", own_pid);
     signal(SIGINT, handle_exit);
     signal(SIGTERM, handle_exit);
 
@@ -94,11 +98,13 @@ int main(int argc, char **argv) {
         if (err < 0) break;
     }
 
-cleanup:
-    // Eski yöntem (HASH_ITER) yerine modüler fonksiyonu kullanıyoruz:
-    cleanup_all_processes();
-
+    cleanup:
+        cleanup_all_processes();
     ring_buffer__free(rb);
     hello_kern__destroy(skel);
+
+    // 3. Çıkarken Loglayıcıyı Kapat
+    finalize_logger();
+
     return -err;
 }

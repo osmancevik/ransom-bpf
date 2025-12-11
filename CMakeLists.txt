@@ -70,6 +70,8 @@ set(USER_SRC
         ${CMAKE_CURRENT_SOURCE_DIR}/main.c
         ${CMAKE_CURRENT_SOURCE_DIR}/state_manager.c
         ${CMAKE_CURRENT_SOURCE_DIR}/detector.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/config.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/logger.c
         # logger.h header olduğu için kaynak dosyaya eklemeye gerek yok ama IDE için iyi olur
 )
 
