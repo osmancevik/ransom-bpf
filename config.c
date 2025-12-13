@@ -47,6 +47,12 @@ void load_config(const char *filename) {
                 value[strcspn(value, "\n")] = 0;
                 strncpy(config.log_file, value, sizeof(config.log_file));
             }
+            else if (strcmp(key, "WHITELIST") == 0) {
+                // Config dosyasından gelen whitelist string'ini struct'a kopyala
+                value[strcspn(value, "\n")] = 0; // Varsa sondaki enter karakterini sil
+                strncpy(config.whitelist_str, value, MAX_WHITELIST_LENGTH - 1);
+                config.whitelist_str[MAX_WHITELIST_LENGTH - 1] = '\0'; // Null terminator garantisi
+            }
         }
     }
 

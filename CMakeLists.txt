@@ -50,18 +50,20 @@ add_custom_target(
 # This target is NOT used for the actual build.
 # It exists ONLY to help the CLion editor index our kernel file
 # and understand its include paths (like vmlinux.h).
-add_library(kern_ide_helper OBJECT
-        ${KERNEL_SRC}
-)
+
+# BU KISIMLARI YORUM SATIRINA ALIN:
+# add_library(kern_ide_helper OBJECT
+#        ${KERNEL_SRC}
+# )
 
 # Now, tell this dummy target where to find its headers.
-target_include_directories(kern_ide_helper
-        PRIVATE
-        # 1. The project directory (for vmlinux.h)
-        ${CMAKE_CURRENT_SOURCE_DIR}
-        # 2. The generated build directory (for skeleton, if needed)
-        ${CMAKE_CURRENT_BINARY_DIR}
-)
+# target_include_directories(kern_ide_helper
+#        PRIVATE
+#        # 1. The project directory (for vmlinux.h)
+#        ${CMAKE_CURRENT_SOURCE_DIR}
+#        # 2. The generated build directory (for skeleton, if needed)
+#        ${CMAKE_CURRENT_BINARY_DIR}
+# )
 
 # --- 3. Define User-Space C Agent Build ---
 
@@ -72,6 +74,7 @@ set(USER_SRC
         ${CMAKE_CURRENT_SOURCE_DIR}/detector.c
         ${CMAKE_CURRENT_SOURCE_DIR}/config.c
         ${CMAKE_CURRENT_SOURCE_DIR}/logger.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/whitelist.c
         # logger.h header olduğu için kaynak dosyaya eklemeye gerek yok ama IDE için iyi olur
 )
 
@@ -103,3 +106,30 @@ target_link_libraries(hello_ebpf
 
 # --- 4. (Optional) Install) ---
 install(TARGETS hello_ebpf DESTINATION bin)
+
+# --- 5. Unit Tests (Birim Testleri) ---
+
+# Test calistirilabilir dosyasi
+add_executable(run_tests
+        tests/test_runner.c
+        detector.c
+        state_manager.c
+        # Not: main.c ve logger.c bilerek eklenmedi. Mocklaniyor.
+)
+
+# Testlerin ihtiyac duydugu header yollari
+target_include_directories(run_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+# CTest entegrasyonu (Opsiyonel: make test komutu icin)
+enable_testing()
+add_test(NAME AllTests COMMAND run_tests)
+
+# --- 6. Config Dosyasını Otomatik Kopyala (Gelişmiş) ---
+# Derleme (Make) her yapıldığında, eğer kaynak dosya değişmişse build klasörüne kopyalar.
+add_custom_command(
+        TARGET hello_ebpf POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_CURRENT_SOURCE_DIR}/ransom.conf
+        ${CMAKE_CURRENT_BINARY_DIR}/ransom.conf
+        COMMENT "Guncel ransom.conf dosyasini build klasorune kopyaliyor..."
+)

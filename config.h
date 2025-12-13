@@ -6,6 +6,7 @@
 #define DEFAULT_WRITE_THRESHOLD 15
 #define DEFAULT_RENAME_THRESHOLD 5
 #define DEFAULT_LOG_FILE "/var/log/ransom-bpf.log"
+#define MAX_WHITELIST_LENGTH 512
 
 struct app_config {
     int window_sec;          // Analiz penceresi süresi (sn)
@@ -13,6 +14,7 @@ struct app_config {
     int rename_threshold;    // Yeniden adlandırma limiti
     char log_file[256];      // Log dosyası yolu
     int verbose_mode;        // Detaylı çıktı modu
+    char whitelist_str[MAX_WHITELIST_LENGTH];
 };
 
 // Global konfigürasyon nesnesi (Her yerden erişilebilir)
