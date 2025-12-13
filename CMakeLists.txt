@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 # Define the project name
-project(hello_ebpf C)
+project(ransom_bpf C)
 
 set(CMAKE_C_STANDARD 23)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -80,13 +80,13 @@ set(USER_SRC
 
 
 # Add the user-space executable target
-add_executable(hello_ebpf ${USER_SRC})
+add_executable(ransom_bpf ${USER_SRC})
 
 # Ensure user-space builds AFTER skeleton is generated
-add_dependencies(hello_ebpf ebpf_build)
+add_dependencies(ransom_bpf ebpf_build)
 
 # Add include directories for the user-space target
-target_include_directories(hello_ebpf
+target_include_directories(ransom_bpf
         PRIVATE
         # For skeleton header
         ${CMAKE_CURRENT_BINARY_DIR}
@@ -98,14 +98,14 @@ target_include_directories(hello_ebpf
 )
 
 # Link against required libraries
-target_link_libraries(hello_ebpf
+target_link_libraries(ransom_bpf
         PRIVATE
         ${LIBBPF_LIBRARIES}
         ${LIBELF_LIBRARIES}
 )
 
 # --- 4. (Optional) Install) ---
-install(TARGETS hello_ebpf DESTINATION bin)
+install(TARGETS ransom_bpf DESTINATION bin)
 
 # --- 5. Unit Tests (Birim Testleri) ---
 
@@ -127,7 +127,7 @@ add_test(NAME AllTests COMMAND run_tests)
 # --- 6. Config Dosyasını Otomatik Kopyala (Gelişmiş) ---
 # Derleme (Make) her yapıldığında, eğer kaynak dosya değişmişse build klasörüne kopyalar.
 add_custom_command(
-        TARGET hello_ebpf POST_BUILD
+        TARGET ransom_bpf POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
         ${CMAKE_CURRENT_SOURCE_DIR}/ransom.conf
         ${CMAKE_CURRENT_BINARY_DIR}/ransom.conf

@@ -81,7 +81,7 @@ int main(int argc, char **argv) {
     init_whitelist(config.whitelist_str);
 
     libbpf_set_print(print_libbpf_log);
-    LOG_INFO("eBPF Ajan Baslatildi (PID: %d).", own_pid);
+    LOG_INFO("RansomBPF v%s Baslatildi (PID: %d).", APP_VERSION, own_pid);
 
     signal(SIGINT, handle_exit);
     signal(SIGTERM, handle_exit);
