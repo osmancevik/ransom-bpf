@@ -75,6 +75,7 @@ set(USER_SRC
         ${CMAKE_CURRENT_SOURCE_DIR}/config.c
         ${CMAKE_CURRENT_SOURCE_DIR}/logger.c
         ${CMAKE_CURRENT_SOURCE_DIR}/whitelist.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/cli.c
         # logger.h header olduğu için kaynak dosyaya eklemeye gerek yok ama IDE için iyi olur
 )
 
