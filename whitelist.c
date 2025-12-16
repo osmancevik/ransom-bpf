@@ -66,3 +66,12 @@ bool is_whitelisted(const char *comm) {
 
     return false;
 }
+
+void cleanup_whitelist() {
+    for (int i = 0; i < whitelist_count; i++) {
+        if (whitelisted_comms[i] != NULL) {
+            free(whitelisted_comms[i]); // strdup ile ayrılan belleği iade et
+            whitelisted_comms[i] = NULL;
+        }
+    }
+}

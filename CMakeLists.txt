@@ -134,3 +134,18 @@ add_custom_command(
         ${CMAKE_CURRENT_BINARY_DIR}/ransom.conf
         COMMENT "Guncel ransom.conf dosyasini build klasorune kopyaliyor..."
 )
+
+# --- 7. Sistem Kurulumu (Systemd Entegrasyonu) ---
+
+# 1. Binary dosyasını standart yola kopyala (/usr/local/bin)
+install(TARGETS ransom_bpf DESTINATION bin)
+
+# 2. Konfigürasyon dosyasını /etc/ransom-bpf/ altına kopyala
+install(FILES ransom.conf DESTINATION /etc/ransom-bpf COMPONENT config)
+
+# 3. Systemd servis dosyasını kopyala
+# Not: Systemd yolu dağıtıma göre değişebilir ama genelde burasıdır.
+install(FILES ransom-bpf.service DESTINATION /etc/systemd/system COMPONENT system)
+
+# Bilgi Mesajı
+message(STATUS "Systemd servisi icin: 'sudo make install' ardindan 'sudo systemctl enable --now ransom-bpf' calistirin.")

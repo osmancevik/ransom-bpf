@@ -2,7 +2,7 @@
 #ifndef COMMON_H
 #define COMMON_H
 
-#define APP_VERSION "0.6.0"
+#define APP_VERSION "0.7.0"
 
 enum event_type {
     EVENT_EXEC = 1,

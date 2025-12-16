@@ -1,3 +1,4 @@
+/* config.c - Sessiz Versiyon */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -6,7 +7,6 @@
 
 struct app_config config;
 
-// 1. Sadece varsayılan değerleri atar (Sıfırlama yapar)
 void init_config_defaults() {
     config.window_sec = DEFAULT_WINDOW_SEC;
     config.write_threshold = DEFAULT_WRITE_THRESHOLD;
@@ -16,12 +16,12 @@ void init_config_defaults() {
     memset(config.whitelist_str, 0, sizeof(config.whitelist_str));
 }
 
-// 2. Verilen dosyadan ayarları okur ve mevcut ayarların üzerine yazar
 void load_config_file(const char *filename) {
     FILE *file = fopen(filename, "r");
     if (!file) {
-        // Dosya yoksa sadece uyarı ver, programı durdurma (CLI'dan ayar gelebilir)
-        LOG_WARN("Konfigurasyon dosyasi (%s) okunamadi.", filename);
+        // Dosya yoksa sessizce çık veya sadece WARN ver (WARN kalsın, hata ayıklama için iyidir)
+        // Ancak CLI --version diyorsa bu WARN da rahatsız edebilir.
+        // Şimdilik WARN kalsın, çünkü config dosyasının okunamaması genelde önemli bir durumdur.
         return;
     }
 
@@ -45,5 +45,6 @@ void load_config_file(const char *filename) {
         }
     }
     fclose(file);
-    LOG_INFO("Ayarlar dosyalardan yuklendi: %s", filename);
+    // IPTAL EDILDI: LOG_INFO("Ayarlar dosyalardan yuklendi: %s", filename);
+    // Artık main.c raporlayacak.
 }

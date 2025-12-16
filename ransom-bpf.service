@@ -1,0 +1,23 @@
+[Unit]
+Description=eBPF Ransomware Detection Service
+Documentation=https://github.com/osmancevik/ransom-bpf
+After=network.target auditd.service
+
+[Service]
+Type=simple
+# Programın kurulu olacağı yol (CMake install ile buraya gidecek)
+ExecStart=/usr/local/bin/ransom_bpf
+# Konfigürasyon dosyalarını arayacağı varsayılan dizin
+WorkingDirectory=/etc/ransom-bpf
+# Çökerse veya öldürülürse 5 saniye sonra yeniden başlat
+Restart=always
+RestartSec=5
+# Logları journald'ye yönlendir (StandardOutput/Error)
+StandardOutput=journal
+StandardError=journal
+# eBPF işlemleri için root yetkisi şarttır
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target

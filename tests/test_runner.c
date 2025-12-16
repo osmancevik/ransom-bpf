@@ -1,32 +1,41 @@
+/* tests/test_runner.c */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
 #include <time.h>
-
+#include <stdarg.h> // va_list icin gerekli
 
 #include "../detector.h"
 #include "../config.h"
-#include "../logger.h"
+#include "../logger.h" // LogLevel ve prototipler buradan gelir
 #include "../common.h"
-#include "../state_manager.h" 
+#include "../state_manager.h"
 
 // --- MOCK (SAHTE) ALTYAPI ---
 
 // 1. Config: Global config değişkenini test için manuel tanımlıyoruz
+// config.c baglanmadigi icin bu degiskeni bizim yaratmamiz sart.
 struct app_config config;
 
 // 2. Logger Durumu: Test sırasında logları takip etmek için değişkenler
-int last_log_level = -1;
+LogLevel last_log_level = -1;
 char last_log_msg[256];
 int alarm_triggered = 0;
 
-// 3. Mock Logger Fonksiyonu: Ekrana basmak yerine değişkenleri günceller
-void log_message(enum log_level level, const char *format, ...) {
+// 3. Mock Logger Fonksiyonu
+void log_message(LogLevel level, const char *file, int line, const char *format, ...) {
     last_log_level = level;
-    if (level == LEVEL_ALARM) {
+
+    if (level == LOG_LEVEL_ALARM) {
         alarm_triggered = 1;
     }
+
+    // Mesaji sakla
+    va_list args;
+    va_start(args, format);
+    vsnprintf(last_log_msg, sizeof(last_log_msg), format, args);
+    va_end(args);
 }
 
 // --- YARDIMCI FONKSİYONLAR ---
@@ -37,13 +46,22 @@ void setup() {
     last_log_level = -1;
     memset(last_log_msg, 0, sizeof(last_log_msg));
 
-    // Varsayılan test ayarları
-    config.window_sec = 5;       // 5 saniyelik pencere
-    config.write_threshold = 10; // 10 dosya limiti
-    config.rename_threshold = 5; // 5 isim değiştirme limiti
+    // DUZELTME: init_config_defaults() cagrisi KALDIRILDI.
+    // Cunku config.c bagli degil. Degerleri manuel atiyoruz:
+
+    memset(&config, 0, sizeof(struct app_config)); // Temizle
+
+    // Teste Ozel Ayarlar
+    config.window_sec = 5;
+    config.write_threshold = 10;
+    config.rename_threshold = 5;
+    config.verbose_mode = 0;
+
+    // Testte log dosyasina yazilmasini istemiyoruz
+    strcpy(config.log_file, "");
 }
 
-// Renkli çıktı için basit makrolar (Terminalde şık görünür)
+// Renkli çıktı için basit makrolar
 #define PASS() printf("\033[0;32m[PASS]\033[0m\n")
 #define FAIL() printf("\033[0;31m[FAIL]\033[0m\n")
 
@@ -70,13 +88,13 @@ void test_write_burst_detection() {
         analyze_event(&p, &e);
     }
 
-    // Kontrol: Alarm çaldı mı? Burst sayacı sıfırlandı mı?
+    // Kontrol
     if (alarm_triggered == 1 && p.write_burst == 0) {
         PASS();
     } else {
         FAIL();
-        printf("   -> Beklenen: Alarm tetiklenmeliydi.\n");
-        exit(1); // Test başarısızsa durdur
+        printf("   -> Beklenen: Alarm tetiklenmeliydi. (Triggered: %d, Burst: %lu)\n", alarm_triggered, p.write_burst);
+        exit(1);
     }
 }
 
@@ -101,7 +119,7 @@ void test_normal_user_behavior() {
         PASS();
     } else {
         FAIL();
-        printf("   -> Hata: Alarm caldi veya sayac yanlis. (Burst: %d)\n", p.write_burst);
+        printf("   -> Hata: Alarm caldi veya sayac yanlis. (Burst: %lu)\n", p.write_burst);
         exit(1);
     }
 }
@@ -114,23 +132,21 @@ void test_window_reset_logic() {
     memset(&p, 0, sizeof(p));
     p.pid = 3003;
     p.write_burst = 9; // Limite çok yakın (Limit: 10)
-    
+
     // HİLE: Sürecin başlangıç zamanını 10 saniye geriye alıyoruz
-    // Böylece 5 saniyelik pencere dolmuş oluyor.
-    p.window_start_time = time(NULL) - 10; 
+    p.window_start_time = time(NULL) - 10;
 
     struct event e;
     e.type = EVENT_WRITE;
 
-    // Yeni bir olay geldiğinde, süre dolduğu için eski sayaç (9) silinmeli
-    // ve sayaç 1'den başlamalıdır. Alarm çalmamalıdır.
+    // Yeni bir olay geldiğinde, süre dolduğu için eski sayaç silinmeli
     analyze_event(&p, &e);
 
     if (alarm_triggered == 0 && p.write_burst == 1) {
         PASS();
     } else {
         FAIL();
-        printf("   -> Hata: Zaman penceresi sifirlanmadi. (Burst: %d)\n", p.write_burst);
+        printf("   -> Hata: Zaman penceresi sifirlanmadi. (Burst: %lu)\n", p.write_burst);
         exit(1);
     }
 }
@@ -173,9 +189,6 @@ int main() {
     test_normal_user_behavior();
     test_window_reset_logic();
     test_rename_burst_detection();
-
-    // Gelecekte H2 (İmza) testleri buraya eklenecek:
-    // test_signature_detection();
 
     printf("==========================================\n");
     printf("   TUM TESTLER BASARIYLA TAMAMLANDI.      \n");
