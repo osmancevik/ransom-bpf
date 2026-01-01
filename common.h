@@ -9,7 +9,8 @@ enum event_type {
     EVENT_WRITE = 2,
     EVENT_OPEN = 3,
     EVENT_RENAME = 4,
-    EVENT_EXIT = 5
+    EVENT_EXIT = 5,
+    EVENT_UNLINK = 6
 };
 
 #define TASK_COMM_LEN 16

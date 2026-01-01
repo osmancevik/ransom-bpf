@@ -78,5 +78,33 @@ int handle_exit(void *ctx)   // <--- DÜZELTME BURADA (struct ... yerine void *c
     send_event(ctx, EVENT_EXIT, NULL);
     return 0;
 }
+// 7. UNLINK (Dosya Silme)
+// Fidye yazılımları şifreleme sonrası orijinal dosyayı siler.
+// Ayrıca yedekleri (backups) silmek için de kullanılır.
+SEC("tracepoint/syscalls/sys_enter_unlinkat")
+int handle_unlinkat(struct trace_event_raw_sys_enter *ctx)
+{
+    // 1. Ring Buffer'da yer ayır
+    struct event *e;
+    e = bpf_ringbuf_reserve(&rb, sizeof(*e), 0);
+    if (!e) {
+        return 0;
+    }
+
+    // 2. Temel Süreç Bilgilerini Doldur
+    e->pid = bpf_get_current_pid_tgid() >> 32;
+    bpf_get_current_comm(&e->comm, sizeof(e->comm));
+
+    // 3. Dosya Adını Oku
+    // int unlinkat(int dirfd, const char *pathname, int flags);
+    // ctx->args[1] = pathname (silinecek dosya yolu)
+    bpf_probe_read_user_str(&e->filename, sizeof(e->filename), (const char *)ctx->args[1]);
+
+    // 4. Olay Türünü Belirle ve Gönder
+    e->type = EVENT_UNLINK;
+
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
 
 char LICENSE[] SEC("license") = "GPL";

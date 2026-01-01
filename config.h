@@ -1,3 +1,4 @@
+/* config.h */
 #ifndef CONFIG_H
 #define CONFIG_H
 
@@ -15,11 +16,14 @@ struct app_config {
     char log_file[256];
     int verbose_mode;
     char whitelist_str[MAX_WHITELIST_LENGTH];
+    char honeypot_file[256];
+
+    // YENİ: Config dosya yolunu tutmak için
+    char config_path[256];
 };
 
 extern struct app_config config;
 
-// Fonksiyonlar ayrıştırıldı
 void init_config_defaults();
 void load_config_file(const char *filename);
 

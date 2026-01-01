@@ -12,10 +12,18 @@
 #include "../common.h"
 #include "../state_manager.h"
 
+// Eksik olan veya detector.c'de tanımlanacak fonksiyon prototiplerini bildiriyoruz
+// (detector.h güncellenmemişse derleme hatası almamak için)
+extern int is_honeypot_access(const char *filename);
+
+// Yeni eklenecek EVENT türü (common.h güncellenmediyse manuel tanımla)
+#ifndef EVENT_DELETE
+#define EVENT_DELETE 6
+#endif
+
 // --- MOCK (SAHTE) ALTYAPI ---
 
 // 1. Config: Global config değişkenini test için manuel tanımlıyoruz
-// config.c baglanmadigi icin bu degiskeni bizim yaratmamiz sart.
 struct app_config config;
 
 // 2. Logger Durumu: Test sırasında logları takip etmek için değişkenler
@@ -46,9 +54,6 @@ void setup() {
     last_log_level = -1;
     memset(last_log_msg, 0, sizeof(last_log_msg));
 
-    // DUZELTME: init_config_defaults() cagrisi KALDIRILDI.
-    // Cunku config.c bagli degil. Degerleri manuel atiyoruz:
-
     memset(&config, 0, sizeof(struct app_config)); // Temizle
 
     // Teste Ozel Ayarlar
@@ -57,11 +62,13 @@ void setup() {
     config.rename_threshold = 5;
     config.verbose_mode = 0;
 
-    // Testte log dosyasina yazilmasini istemiyoruz
+    // Varsayılan Honeypot Dosyası (detector.c içinde global olabilir ama buraya not düştük)
+    // Not: detector.c'deki HONEYPOT_FILENAME değişkenini değiştirmek için
+    // extern char HONEYPOT_FILENAME[]; yapmak gerekebilir ama şimdilik varsayılanı test edeceğiz.
+
     strcpy(config.log_file, "");
 }
 
-// Renkli çıktı için basit makrolar
 #define PASS() printf("\033[0;32m[PASS]\033[0m\n")
 #define FAIL() printf("\033[0;31m[FAIL]\033[0m\n")
 
@@ -71,29 +78,25 @@ void test_write_burst_detection() {
     printf("Test 1: Write Burst (Fidye Yazilimi Yazma Tespiti)... ");
     setup();
 
-    // Süreç Hazırlığı
     struct process_stats p;
     memset(&p, 0, sizeof(p));
     p.pid = 1001;
     strcpy(p.comm, "ransom.exe");
     p.window_start_time = time(NULL);
 
-    // Olay Hazırlığı
     struct event e;
     e.type = EVENT_WRITE;
     e.pid = 1001;
 
-    // Eşik 10 iken, 11 tane olay gönderiyoruz
     for (int i = 0; i < 11; i++) {
         analyze_event(&p, &e);
     }
 
-    // Kontrol
     if (alarm_triggered == 1 && p.write_burst == 0) {
         PASS();
     } else {
         FAIL();
-        printf("   -> Beklenen: Alarm tetiklenmeliydi. (Triggered: %d, Burst: %lu)\n", alarm_triggered, p.write_burst);
+        printf("   -> Beklenen: Alarm tetiklenmeliydi. (Triggered: %d)\n", alarm_triggered);
         exit(1);
     }
 }
@@ -110,7 +113,6 @@ void test_normal_user_behavior() {
     struct event e;
     e.type = EVENT_WRITE;
 
-    // Eşik 10 iken, sadece 5 olay gönderiyoruz
     for (int i = 0; i < 5; i++) {
         analyze_event(&p, &e);
     }
@@ -119,7 +121,7 @@ void test_normal_user_behavior() {
         PASS();
     } else {
         FAIL();
-        printf("   -> Hata: Alarm caldi veya sayac yanlis. (Burst: %lu)\n", p.write_burst);
+        printf("   -> Hata: Alarm caldi veya sayac yanlis.\n");
         exit(1);
     }
 }
@@ -131,22 +133,19 @@ void test_window_reset_logic() {
     struct process_stats p;
     memset(&p, 0, sizeof(p));
     p.pid = 3003;
-    p.write_burst = 9; // Limite çok yakın (Limit: 10)
-
-    // HİLE: Sürecin başlangıç zamanını 10 saniye geriye alıyoruz
-    p.window_start_time = time(NULL) - 10;
+    p.write_burst = 9;
+    p.window_start_time = time(NULL) - 10; // 10 saniye önce
 
     struct event e;
     e.type = EVENT_WRITE;
 
-    // Yeni bir olay geldiğinde, süre dolduğu için eski sayaç silinmeli
     analyze_event(&p, &e);
 
     if (alarm_triggered == 0 && p.write_burst == 1) {
         PASS();
     } else {
         FAIL();
-        printf("   -> Hata: Zaman penceresi sifirlanmadi. (Burst: %lu)\n", p.write_burst);
+        printf("   -> Hata: Zaman penceresi sifirlanmadi.\n");
         exit(1);
     }
 }
@@ -164,7 +163,6 @@ void test_rename_burst_detection() {
     e.type = EVENT_RENAME;
     strcpy(e.filename, "veri.txt.locked");
 
-    // Rename limiti 5. Biz 6 tane gönderiyoruz.
     for (int i = 0; i < 6; i++) {
         analyze_event(&p, &e);
     }
@@ -174,6 +172,71 @@ void test_rename_burst_detection() {
     } else {
         FAIL();
         printf("   -> Hata: Rename limiti asilmasina ragmen alarm calmad.\n");
+        exit(1);
+    }
+}
+
+// --- YENI TESTLER (GOREV 1.2 & 1.3) ---
+
+void test_honeypot_access() {
+    printf("Test 5: Honeypot (Tuzak Dosya) Tespiti... ");
+    setup();
+
+    // 1. is_honeypot_access mantık testi
+    int res1 = is_honeypot_access("secret_passwords.txt");
+    int res2 = is_honeypot_access("/home/user/secret_passwords.txt");
+    int res3 = is_honeypot_access("odev.docx");
+
+    assert(res1 == 1);
+    assert(res2 == 1);
+    assert(res3 == 0);
+
+    // 2. Entegrasyon testi (analyze_event üzerinden)
+    struct process_stats p;
+    memset(&p, 0, sizeof(p));
+    p.pid = 5005;
+    strcpy(p.comm, "hacker");
+
+    struct event e;
+    e.type = EVENT_OPEN; // Veya READ
+    strcpy(e.filename, "/var/www/secret_passwords.txt");
+
+    analyze_event(&p, &e);
+
+    // Honeypot erişimi ALARM (LOG_LEVEL_ALARM) üretmeli
+    if (alarm_triggered == 1) {
+        PASS();
+    } else {
+        FAIL();
+        printf("   -> Hata: Honeypot dosyasina erisim alarm uretmedi!\n");
+        exit(1);
+    }
+}
+
+void test_deletion_event() {
+    printf("Test 6: Dosya Silme (Deletion) Loglama... ");
+    setup();
+
+    struct process_stats p;
+    memset(&p, 0, sizeof(p));
+    p.pid = 6006;
+    strcpy(p.comm, "rm");
+
+    struct event e;
+    e.type = EVENT_DELETE; // Veya UNLINK
+    strcpy(e.filename, "onemli_belge.pdf");
+
+    analyze_event(&p, &e);
+
+    // Silme işlemi şu an sadece INFO seviyesinde loglanıyor (Alarm değil)
+    // Bu yüzden alarm_triggered == 0 olmalı ama last_log_msg içinde "silme" veya "DELETE" geçmeli
+
+    if (alarm_triggered == 0 && last_log_level == LOG_LEVEL_INFO) {
+        PASS();
+    } else {
+        FAIL();
+        printf("   -> Hata: Silme islemi INFO logu uretmedi veya yanlislikla ALARM ureti.\n");
+        printf("      Last Level: %d (Beklenen: %d)\n", last_log_level, LOG_LEVEL_INFO);
         exit(1);
     }
 }
@@ -189,6 +252,10 @@ int main() {
     test_normal_user_behavior();
     test_window_reset_logic();
     test_rename_burst_detection();
+
+    // Yeni eklenen testleri çalıştır
+    test_honeypot_access();
+    test_deletion_event();
 
     printf("==========================================\n");
     printf("   TUM TESTLER BASARIYLA TAMAMLANDI.      \n");
