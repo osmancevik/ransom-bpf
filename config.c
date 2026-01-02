@@ -12,11 +12,16 @@ void init_config_defaults() {
     config.write_threshold = DEFAULT_WRITE_THRESHOLD;
     config.rename_threshold = DEFAULT_RENAME_THRESHOLD;
 
-    // --- YENİ: Puanlama Varsayılanları ---
+    // --- Puanlama Varsayılanları ---
     config.score_write = DEFAULT_SCORE_WRITE;
     config.score_rename = DEFAULT_SCORE_RENAME;
     config.score_unlink = DEFAULT_SCORE_UNLINK;
     config.score_honeypot = DEFAULT_SCORE_HONEYPOT;
+
+    // --- YENİ: Uzantı Ceza Puanı (Task 2.5) ---
+    // Not: config.h içinde #define DEFAULT_SCORE_EXT_PENALTY 50 tanımlı olmalıdır.
+    config.score_ext_penalty = DEFAULT_SCORE_EXT_PENALTY;
+
     config.risk_threshold = DEFAULT_RISK_THRESHOLD;
 
     // Diğer ayarlar
@@ -47,11 +52,15 @@ void load_config_file(const char *filename) {
             else if (strcmp(key, "WRITE_THRESHOLD") == 0) config.write_threshold = atoi(value);
             else if (strcmp(key, "RENAME_THRESHOLD") == 0) config.rename_threshold = atoi(value);
 
-            // --- YENİ: Puanlama Ayarları ---
+            // --- Puanlama Ayarları ---
             else if (strcmp(key, "SCORE_WRITE") == 0) config.score_write = atoi(value);
             else if (strcmp(key, "SCORE_RENAME") == 0) config.score_rename = atoi(value);
             else if (strcmp(key, "SCORE_UNLINK") == 0) config.score_unlink = atoi(value);
             else if (strcmp(key, "SCORE_HONEYPOT") == 0) config.score_honeypot = atoi(value);
+
+            // --- YENİ: Uzantı Ceza Puanı Okuma (Task 2.5) ---
+            else if (strcmp(key, "SCORE_EXT_PENALTY") == 0) config.score_ext_penalty = atoi(value);
+
             else if (strcmp(key, "RISK_THRESHOLD") == 0) config.risk_threshold = atoi(value);
 
             // Dosya Yolları ve Stringler

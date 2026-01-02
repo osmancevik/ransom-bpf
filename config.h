@@ -14,6 +14,7 @@
 #define DEFAULT_SCORE_UNLINK 50     // Dosya silme oldukça şüpheli
 #define DEFAULT_SCORE_HONEYPOT 1000 // Honeypot'a dokunmak kesin suçtur (Anında Alarm)
 #define DEFAULT_RISK_THRESHOLD 100  // Alarm üretmek için gereken toplam puan
+#define DEFAULT_SCORE_EXT_PENALTY 50
 
 #define DEFAULT_LOG_FILE "/var/log/ransom-bpf.log"
 #define MAX_WHITELIST_LENGTH 512
@@ -31,6 +32,7 @@ struct app_config {
     int score_rename;
     int score_unlink;
     int score_honeypot;
+    int score_ext_penalty;
     int risk_threshold;
 
     // Yollar ve Ayarlar
