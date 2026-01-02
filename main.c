@@ -48,7 +48,7 @@ int handle_event(void *ctx, void *data, size_t size) {
     }
 
     // Durum takibi ve Beyaz liste kontrolü
-    struct process_stats *s = get_or_create_process(e->pid, e->comm);
+    struct process_stats *s = get_process_stats(e->pid, e->comm);
     if (!s) return 0;
 
     if (is_whitelisted(s->comm)) return 0;

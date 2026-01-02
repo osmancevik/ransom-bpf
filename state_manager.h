@@ -2,32 +2,32 @@
 #ifndef STATE_MANAGER_H
 #define STATE_MANAGER_H
 
-#include <time.h>
 #include "uthash.h"
-#include "common.h"
+#include <time.h>
 
 struct process_stats {
-    int pid;                   // KEY
-    char comm[TASK_COMM_LEN];  // Process Name
-
-    // İstatistikler
-    unsigned long total_exec_count;
+    int pid;                    // Anahtar (Key)
+    char comm[16];              // Süreç Adı
     unsigned long total_write_count;
+    unsigned long write_burst;
+    unsigned long rename_burst;
 
-    // Hız Analizi (H1)
-    time_t window_start_time;
-    unsigned int write_burst;
-    unsigned int rename_burst;
+    time_t window_start_time;   // Pencere başlangıcı
+    time_t last_decay_time;     // Son sönümleme zamanı (Task 2.7)
 
-    // --- YENİ: Risk Puanlama (Faz 2) ---
-    int current_score;         // Anlık toplam risk puanı
+    int current_score;          // Risk Puanı
 
-    UT_hash_handle hh;         // uthash handle
+    UT_hash_handle hh;          // Uthash kancası
 };
 
 // Fonksiyon prototipleri
-struct process_stats* get_or_create_process(int pid, const char* comm);
+// main.c "get_or_create_process" arıyor olabilir ama biz "get_process_stats" ismini kullanıyoruz.
+struct process_stats *get_process_stats(int pid, const char *comm);
+
+// process'i silme fonksiyonu
 void remove_process(int pid);
+
+// Program kapanırken tüm belleği temizleyen fonksiyon (Hata 2'nin çözümü)
 void cleanup_all_processes();
 
 #endif // STATE_MANAGER_H

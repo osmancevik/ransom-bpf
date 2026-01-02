@@ -1,36 +1,42 @@
 /* state_manager.c */
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "state_manager.h"
 #include "logger.h"
 
-struct process_stats *processes = NULL; // Hash table head
+// Hash tablosu (Global)
+struct process_stats *processes = NULL;
 
-struct process_stats* get_or_create_process(int pid, const char* comm) {
+struct process_stats *get_process_stats(int pid, const char *comm) {
     struct process_stats *s;
 
+    // Hash tablosunda PID'yi ara
     HASH_FIND_INT(processes, &pid, s);
-    if (!s) {
-        s = (struct process_stats *)malloc(sizeof(struct process_stats));
+
+    if (s == NULL) {
+        // Yoksa yeni oluştur
+        s = (struct process_stats*)malloc(sizeof(struct process_stats));
         if (!s) {
-            LOG_ERR("Bellek ayrilamadi! PID: %d", pid);
+            // Logger header'ına bağlı olarak LOG_WARN veya printf kullanabilirsiniz
+            fprintf(stderr, "[WARN] Bellek hatasi (malloc) PID: %d\n", pid);
             return NULL;
         }
-        s->pid = pid;
-        // comm güvenli kopyalama
-        strncpy(s->comm, comm, TASK_COMM_LEN);
-        s->comm[TASK_COMM_LEN - 1] = '\0';
 
-        // Başlangıç değerleri
-        s->total_exec_count = 0;
+        // Alanları doldur
+        s->pid = pid;
+        strncpy(s->comm, comm, sizeof(s->comm) - 1);
+        s->comm[sizeof(s->comm) - 1] = '\0';
+
         s->total_write_count = 0;
-        s->window_start_time = time(NULL);
         s->write_burst = 0;
         s->rename_burst = 0;
+        s->current_score = 0;
 
-        // --- YENİ: Skor Başlatma ---
-        s->current_score = 0; // Yeni süreç masum başlar
+        s->window_start_time = time(NULL);
+        s->last_decay_time = time(NULL);
 
+        // Tabloya ekle
         HASH_ADD_INT(processes, pid, s);
     }
     return s;
@@ -40,16 +46,18 @@ void remove_process(int pid) {
     struct process_stats *s;
     HASH_FIND_INT(processes, &pid, s);
     if (s) {
-        LOG_DEBUG("PID: %d temizleniyor.", pid);
         HASH_DEL(processes, s);
         free(s);
     }
 }
 
+// --- YENİ: Çıkışta temizlik fonksiyonu ---
 void cleanup_all_processes() {
-    struct process_stats *current, *tmp;
-    HASH_ITER(hh, processes, current, tmp) {
-        HASH_DEL(processes, current);
-        free(current);
+    struct process_stats *current_process, *tmp;
+
+    // uthash makrosu: Güvenli iterasyon ile silme
+    HASH_ITER(hh, processes, current_process, tmp) {
+        HASH_DEL(processes, current_process);
+        free(current_process);
     }
 }

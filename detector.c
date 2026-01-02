@@ -2,55 +2,62 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include <math.h> // Matematiksel işlemler gerekirse
 #include "detector.h"
 #include "logger.h"
 #include "config.h"
 #include "whitelist.h"
 
-// Yardımcı Fonksiyon: Zaman penceresi kontrolü ve sıfırlama
-static void check_window(struct process_stats *s) {
+// --- YENİ: Sönümleme (Decay) Algoritması ---
+// Görev 2.7: Riski zamanla yavaş yavaş azalt
+static void apply_decay(struct process_stats *s) {
     time_t now = time(NULL);
-    double diff = difftime(now, s->window_start_time);
+    double diff = difftime(now, s->last_decay_time);
 
-    // Eğer zaman penceresi (örn: 10 sn) dolduysa istatistikleri sıfırla
-    if (diff > config.window_sec) {
-        s->window_start_time = now;
-        s->write_burst = 0;
-        s->rename_burst = 0;
+    // En az 1 saniye geçmişse sönümleme uygula
+    if (diff >= 1.0) {
+        // Algoritma: Her saniye için mevcut skorun %10'u kadar azalt.
+        // Örn: 5 saniye boşluk varsa -> 0.1 * 5 = 0.5 (%50 azalma)
+        // Bu, uzun süre pasif kalan saldırganın "soğumasını" sağlar.
 
-        // Pencere dolduğunda süreç "aklanmış" sayılır, risk puanı sıfırlanır.
-        s->current_score = 0;
+        int decay_amount = (int)(s->current_score * 0.10 * diff);
+
+        // Eğer skor pozitifse ama decay 0 çıkıyorsa (örn skor=5 ise %10'u 0 yapar),
+        // en az 1 puan düşürerek erimeyi garanti et.
+        if (s->current_score > 0 && decay_amount == 0) {
+            decay_amount = 1;
+        }
+
+        s->current_score -= decay_amount;
+
+        // Negatif kontrolü
+        if (s->current_score < 0) {
+            s->current_score = 0;
+        }
+
+        // Eğer skor sıfırlandıysa burst sayaçlarını da temizle (isteğe bağlı ama önerilir)
+        if (s->current_score == 0) {
+            s->write_burst = 0;
+            s->rename_burst = 0;
+        }
+
+        // Zamanı güncelle
+        s->last_decay_time = now;
     }
 }
 
-// --- YENİ: Şüpheli Uzantı Kontrolü (Task 2.5) ---
 static int has_suspicious_extension(const char *filename) {
     if (!filename) return 0;
-
-    // Bilinen fidye yazılımı uzantıları
     const char *suspicious_exts[] = {
-        ".locked",
-        ".enc",
-        ".cry",
-        ".crypto",
-        ".crypted",
-        ".wanna",
-        ".dark",
-        ".micro",
-        ".fun",
-        NULL // Liste sonu belirteci
+        ".locked", ".enc", ".cry", ".crypto", ".crypted",
+        ".wanna", ".dark", NULL
     };
-
     size_t len = strlen(filename);
     for (int i = 0; suspicious_exts[i] != NULL; i++) {
         const char *ext = suspicious_exts[i];
         size_t ext_len = strlen(ext);
-
         if (len > ext_len) {
-            // Dosya adının sonu (suffix) kontrolü
-            if (strcmp(filename + len - ext_len, ext) == 0) {
-                return 1; // Şüpheli uzantı bulundu
-            }
+            if (strcmp(filename + len - ext_len, ext) == 0) return 1;
         }
     }
     return 0;
@@ -58,36 +65,29 @@ static int has_suspicious_extension(const char *filename) {
 
 int is_honeypot_access(const char *filename) {
     if (!filename || strlen(config.honeypot_file) == 0) return 0;
-
-    // Dosya yolu içinde tuzak dosya ismi geçiyor mu?
-    if (strstr(filename, config.honeypot_file) != NULL) {
-        return 1;
-    }
+    if (strstr(filename, config.honeypot_file) != NULL) return 1;
     return 0;
 }
 
 void analyze_event(struct process_stats *s, const struct event *e) {
 
-    // 1. Whitelist Kontrolü (Gürültü Azaltma)
-    if (is_whitelisted(s->comm)) {
-        return; // Güvenli süreç, analiz etme.
-    }
+    // 1. Whitelist
+    if (is_whitelisted(s->comm)) return;
 
-    // 2. Zaman Penceresi Kontrolü
-    check_window(s);
+    // 2. --- YENİ: Sönümleme Uygula ---
+    // (Eski check_window yerine artık bu var)
+    apply_decay(s);
 
     int score_gained = 0;
     int is_alarm = 0;
     char risk_reason[64] = {0};
 
-    // 3. Olay Türüne Göre Puanlama ve Analiz
+    // 3. Olay Türüne Göre Puanlama
     switch (e->type) {
         case EVENT_WRITE:
             s->write_burst++;
             s->total_write_count++;
             score_gained = config.score_write;
-
-            // Honeypot Kontrolü
             if (is_honeypot_access(e->filename)) {
                 score_gained += config.score_honeypot;
                 snprintf(risk_reason, sizeof(risk_reason), "HONEYPOT WRITE");
@@ -97,20 +97,17 @@ void analyze_event(struct process_stats *s, const struct event *e) {
         case EVENT_RENAME:
             s->rename_burst++;
             score_gained = config.score_rename;
-
-            // Honeypot Kontrolü
             if (is_honeypot_access(e->filename)) {
                 score_gained += config.score_honeypot;
                 snprintf(risk_reason, sizeof(risk_reason), "HONEYPOT RENAME");
             }
             break;
 
-        case EVENT_UNLINK: // Dosya Silme
+        case EVENT_UNLINK:
             score_gained = config.score_unlink;
             break;
 
         case EVENT_OPEN:
-             // Honeypot Kontrolü (Okuma teşebbüsü)
             if (is_honeypot_access(e->filename)) {
                 score_gained += config.score_honeypot;
                 snprintf(risk_reason, sizeof(risk_reason), "HONEYPOT ACCESS");
@@ -118,48 +115,45 @@ void analyze_event(struct process_stats *s, const struct event *e) {
             break;
     }
 
-    // --- YENİ: Uzantı Duyarlı Ceza Puanı (Task 2.5) ---
-    // Eğer dosya adı şüpheli bir uzantı içeriyorsa ekstra puan ekle
+    // Dizin Hassasiyeti (Task 2.6)
+    double multiplier = 1.0;
+    if (e->filename) {
+        if (strncmp(e->filename, "/home", 5) == 0) multiplier = 2.0;
+        else if (strncmp(e->filename, "/etc", 4) == 0) multiplier = 5.0;
+        else if (strncmp(e->filename, "/var/www", 8) == 0) multiplier = 2.0;
+        else if (strncmp(e->filename, "/tmp", 4) == 0) multiplier = 0.5;
+    }
+    score_gained = (int)(score_gained * multiplier);
+
+    // Uzantı Cezası (Task 2.5)
     if ((e->type == EVENT_RENAME || e->type == EVENT_WRITE) && has_suspicious_extension(e->filename)) {
         score_gained += config.score_ext_penalty;
-
-        // Eğer henüz bir sebep atanmamışsa sebebi güncelle
-        if (strlen(risk_reason) == 0) {
-            snprintf(risk_reason, sizeof(risk_reason), "SUSPICIOUS EXTENSION");
-        }
+        if (strlen(risk_reason) == 0) snprintf(risk_reason, sizeof(risk_reason), "SUSPICIOUS EXTENSION");
     }
 
     // 4. Puanı Ekle
     s->current_score += score_gained;
 
-    // 5. Risk Değerlendirmesi (Threshold Check)
+    // 5. Alarm Kontrolü
     if (strlen(risk_reason) == 0) {
         if (s->current_score >= config.risk_threshold) {
             is_alarm = 1;
             snprintf(risk_reason, sizeof(risk_reason), "RISK THRESHOLD EXCEEDED");
         }
     } else {
-        // Honeypot veya Uzantı nedenleriyle zaten şüpheli durum oluşmuşsa
-        if (s->current_score >= config.risk_threshold) {
-            is_alarm = 1;
-        }
-        // Not: Honeypot durumunda puan zaten çok yüksek (1000) olduğu için threshold'u her türlü geçer.
+        if (s->current_score >= config.risk_threshold) is_alarm = 1;
     }
 
-    // 6. Alarm Üretimi
+    // 6. Alarm
     if (is_alarm) {
         LOG_ALARM("FIDYE YAZILIMI SUPHESI [%s]! PID: %d (%s) | File: %s | Score: %d/%d",
-                  risk_reason,
-                  s->pid,
-                  s->comm,
-                  e->filename,
-                  s->current_score,
-                  config.risk_threshold);
+                  risk_reason, s->pid, s->comm, e->filename, s->current_score, config.risk_threshold);
 
         // Alarm sonrası reset
-        s->window_start_time = time(NULL);
         s->current_score = 0;
         s->write_burst = 0;
         s->rename_burst = 0;
+        // Decay zamanını da sıfırla ki hemen tekrar decay yapmasın
+        s->last_decay_time = time(NULL);
     }
 }
