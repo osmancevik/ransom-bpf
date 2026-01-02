@@ -1,3 +1,4 @@
+/* state_manager.h */
 #ifndef STATE_MANAGER_H
 #define STATE_MANAGER_H
 
@@ -17,6 +18,9 @@ struct process_stats {
     time_t window_start_time;
     unsigned int write_burst;
     unsigned int rename_burst;
+
+    // --- YENİ: Risk Puanlama (Faz 2) ---
+    int current_score;         // Anlık toplam risk puanı
 
     UT_hash_handle hh;         // uthash handle
 };

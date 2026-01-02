@@ -1,3 +1,4 @@
+/* state_manager.c */
 #include <stdlib.h>
 #include <string.h>
 #include "state_manager.h"
@@ -16,6 +17,7 @@ struct process_stats* get_or_create_process(int pid, const char* comm) {
             return NULL;
         }
         s->pid = pid;
+        // comm güvenli kopyalama
         strncpy(s->comm, comm, TASK_COMM_LEN);
         s->comm[TASK_COMM_LEN - 1] = '\0';
 
@@ -25,6 +27,9 @@ struct process_stats* get_or_create_process(int pid, const char* comm) {
         s->window_start_time = time(NULL);
         s->write_burst = 0;
         s->rename_burst = 0;
+
+        // --- YENİ: Skor Başlatma ---
+        s->current_score = 0; // Yeni süreç masum başlar
 
         HASH_ADD_INT(processes, pid, s);
     }

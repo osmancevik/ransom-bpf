@@ -115,6 +115,8 @@ add_executable(run_tests
         tests/test_runner.c
         detector.c
         state_manager.c
+        whitelist.c   #
+        config.c      #
         # Not: main.c ve logger.c bilerek eklenmedi. Mocklaniyor.
 )
 
