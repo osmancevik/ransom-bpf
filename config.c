@@ -1,4 +1,4 @@
-/* config.c */
+/* config.c - v0.9.0 (Load Multi-Channel Logs) */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -9,23 +9,22 @@ struct app_config config;
 
 void init_config_defaults() {
     config.window_sec = DEFAULT_WINDOW_SEC;
-    config.write_threshold = DEFAULT_WRITE_THRESHOLD;
-    config.rename_threshold = DEFAULT_RENAME_THRESHOLD;
+    config.write_threshold = 15;
+    config.rename_threshold = 5;
 
-    // --- Puanlama Varsayılanları ---
     config.score_write = DEFAULT_SCORE_WRITE;
     config.score_rename = DEFAULT_SCORE_RENAME;
     config.score_unlink = DEFAULT_SCORE_UNLINK;
     config.score_honeypot = DEFAULT_SCORE_HONEYPOT;
-
-    // --- YENİ: Uzantı Ceza Puanı (Task 2.5) ---
-    // Not: config.h içinde #define DEFAULT_SCORE_EXT_PENALTY 50 tanımlı olmalıdır.
     config.score_ext_penalty = DEFAULT_SCORE_EXT_PENALTY;
 
     config.risk_threshold = DEFAULT_RISK_THRESHOLD;
 
-    // Diğer ayarlar
-    strncpy(config.log_file, DEFAULT_LOG_FILE, sizeof(config.log_file));
+    // [YENI] Varsayilan dosya yollari
+    strncpy(config.service_log, DEFAULT_SERVICE_LOG, sizeof(config.service_log));
+    strncpy(config.alert_log, DEFAULT_ALERT_LOG, sizeof(config.alert_log));
+    strncpy(config.audit_log, DEFAULT_AUDIT_LOG, sizeof(config.audit_log));
+
     config.verbose_mode = 0;
     memset(config.whitelist_str, 0, sizeof(config.whitelist_str));
     memset(config.honeypot_file, 0, sizeof(config.honeypot_file));
@@ -34,40 +33,46 @@ void init_config_defaults() {
 
 void load_config_file(const char *filename) {
     FILE *file = fopen(filename, "r");
-    if (!file) {
-        // Dosya yoksa sessizce devam et (Varsayılanlar kullanılır)
-        return;
-    }
+    if (!file) return;
 
-    char line[256];
+    char line[4096];
     while (fgets(line, sizeof(line), file)) {
-        // Yorum satırlarını ve boş satırları atla
         if (line[0] == '#' || line[0] == '\n' || line[0] == '\r') continue;
 
-        char key[128], value[128];
-        // Basit "KEY=VALUE" ayrıştırma
-        if (sscanf(line, "%127[^=]=%127s", key, value) == 2) {
-            // Eski Ayarlar
-            if (strcmp(key, "WINDOW_SEC") == 0) config.window_sec = atoi(value);
-            else if (strcmp(key, "WRITE_THRESHOLD") == 0) config.write_threshold = atoi(value);
-            else if (strcmp(key, "RENAME_THRESHOLD") == 0) config.rename_threshold = atoi(value);
+        char key[128];
+        char value[2048];
 
-            // --- Puanlama Ayarları ---
+        if (sscanf(line, "%127[^=]=%2047s", key, value) == 2) {
+
+            if (strcmp(key, "WINDOW_SEC") == 0) config.window_sec = atoi(value);
+            else if (strcmp(key, "RISK_THRESHOLD") == 0) config.risk_threshold = atoi(value);
+
+            // Puanlar
             else if (strcmp(key, "SCORE_WRITE") == 0) config.score_write = atoi(value);
             else if (strcmp(key, "SCORE_RENAME") == 0) config.score_rename = atoi(value);
             else if (strcmp(key, "SCORE_UNLINK") == 0) config.score_unlink = atoi(value);
             else if (strcmp(key, "SCORE_HONEYPOT") == 0) config.score_honeypot = atoi(value);
-
-            // --- YENİ: Uzantı Ceza Puanı Okuma (Task 2.5) ---
             else if (strcmp(key, "SCORE_EXT_PENALTY") == 0) config.score_ext_penalty = atoi(value);
 
-            else if (strcmp(key, "RISK_THRESHOLD") == 0) config.risk_threshold = atoi(value);
-
-            // Dosya Yolları ve Stringler
-            else if (strcmp(key, "LOG_FILE") == 0) {
-                value[strcspn(value, "\n")] = 0; // Sondaki newline karakterini temizle
-                strncpy(config.log_file, value, sizeof(config.log_file) - 1);
+            // [YENI] Log Dosyalari
+            else if (strcmp(key, "SERVICE_LOG") == 0) {
+                value[strcspn(value, "\n")] = 0;
+                strncpy(config.service_log, value, sizeof(config.service_log) - 1);
             }
+            else if (strcmp(key, "ALERT_LOG") == 0) {
+                value[strcspn(value, "\n")] = 0;
+                strncpy(config.alert_log, value, sizeof(config.alert_log) - 1);
+            }
+            else if (strcmp(key, "AUDIT_LOG") == 0) {
+                value[strcspn(value, "\n")] = 0;
+                strncpy(config.audit_log, value, sizeof(config.audit_log) - 1);
+            }
+            // Geri Uyumluluk (Eski 'LOG_FILE' parametresi gelirse service log yap)
+            else if (strcmp(key, "LOG_FILE") == 0) {
+                value[strcspn(value, "\n")] = 0;
+                strncpy(config.service_log, value, sizeof(config.service_log) - 1);
+            }
+
             else if (strcmp(key, "WHITELIST") == 0) {
                 value[strcspn(value, "\n")] = 0;
                 strncpy(config.whitelist_str, value, MAX_WHITELIST_LENGTH - 1);

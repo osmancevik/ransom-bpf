@@ -1,8 +1,8 @@
-/* common.h */
+/* common.h - v0.8.0 (Added UID & PPID) */
 #ifndef COMMON_H
 #define COMMON_H
 
-#define APP_VERSION "0.7.0"
+#define APP_VERSION "0.8.0"
 
 enum event_type {
     EVENT_EXEC = 1,
@@ -18,7 +18,9 @@ enum event_type {
 
 struct event {
     int type;
-    unsigned int pid;            // <--- DÜZELTME BURADA (__u32 -> unsigned int)
+    unsigned int pid;
+    unsigned int ppid;           // [YENI] Parent Process ID (Ana Surec)
+    unsigned int uid;            // [YENI] User ID (Kullanici Kimligi)
     char comm[TASK_COMM_LEN];
     char filename[MAX_FILENAME_LEN];
 };

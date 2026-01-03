@@ -1,57 +1,32 @@
-/* detector.c */
+/* detector.c - v0.9.0 (Routing Logs) */
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
-#include <math.h> // Matematiksel işlemler gerekirse
 #include "detector.h"
 #include "logger.h"
 #include "config.h"
 #include "whitelist.h"
 
-// --- YENİ: Sönümleme (Decay) Algoritması ---
-// Görev 2.7: Riski zamanla yavaş yavaş azalt
+// ... (apply_decay, has_suspicious_extension, is_honeypot_access fonksiyonları AYNI KALACAK) ...
+// (Lütfen önceki tam detector.c dosyasındaki yardımcı fonksiyonları buraya ekleyin)
+
+// --- YARDIMCI FONKSIYONLAR ---
 static void apply_decay(struct process_stats *s) {
     time_t now = time(NULL);
     double diff = difftime(now, s->last_decay_time);
-
-    // En az 1 saniye geçmişse sönümleme uygula
     if (diff >= 1.0) {
-        // Algoritma: Her saniye için mevcut skorun %10'u kadar azalt.
-        // Örn: 5 saniye boşluk varsa -> 0.1 * 5 = 0.5 (%50 azalma)
-        // Bu, uzun süre pasif kalan saldırganın "soğumasını" sağlar.
-
         int decay_amount = (int)(s->current_score * 0.10 * diff);
-
-        // Eğer skor pozitifse ama decay 0 çıkıyorsa (örn skor=5 ise %10'u 0 yapar),
-        // en az 1 puan düşürerek erimeyi garanti et.
-        if (s->current_score > 0 && decay_amount == 0) {
-            decay_amount = 1;
-        }
-
+        if (s->current_score > 0 && decay_amount == 0) decay_amount = 1;
         s->current_score -= decay_amount;
-
-        // Negatif kontrolü
-        if (s->current_score < 0) {
-            s->current_score = 0;
-        }
-
-        // Eğer skor sıfırlandıysa burst sayaçlarını da temizle (isteğe bağlı ama önerilir)
-        if (s->current_score == 0) {
-            s->write_burst = 0;
-            s->rename_burst = 0;
-        }
-
-        // Zamanı güncelle
+        if (s->current_score < 0) s->current_score = 0;
+        if (s->current_score == 0) { s->write_burst = 0; s->rename_burst = 0; }
         s->last_decay_time = now;
     }
 }
 
 static int has_suspicious_extension(const char *filename) {
     if (!filename) return 0;
-    const char *suspicious_exts[] = {
-        ".locked", ".enc", ".cry", ".crypto", ".crypted",
-        ".wanna", ".dark", NULL
-    };
+    const char *suspicious_exts[] = { ".locked", ".enc", ".cry", ".crypto", ".crypted", ".wanna", ".dark", NULL };
     size_t len = strlen(filename);
     for (int i = 0; suspicious_exts[i] != NULL; i++) {
         const char *ext = suspicious_exts[i];
@@ -69,20 +44,32 @@ int is_honeypot_access(const char *filename) {
     return 0;
 }
 
+// --- ANA ANALIZ ---
+
 void analyze_event(struct process_stats *s, const struct event *e) {
 
-    // 1. Whitelist
+    // 1. Whitelist Filtresi (Gürültüyü burada kesiyoruz)
     if (is_whitelisted(s->comm)) return;
 
-    // 2. --- YENİ: Sönümleme Uygula ---
-    // (Eski check_window yerine artık bu var)
+    // 2. [YENI] Audit Loglama (Whitelist'i gecen HAM olaylari kaydet)
+    const char *event_name = "UNKNOWN";
+    switch(e->type) {
+        case EVENT_WRITE: event_name = "WRITE"; break;
+        case EVENT_RENAME: event_name = "RENAME"; break;
+        case EVENT_OPEN: event_name = "OPEN"; break;
+        case EVENT_UNLINK: event_name = "UNLINK"; break;
+    }
+
+    // Ham veriyi 'audit.json'a yaz
+    log_audit_json(event_name, s->pid, e->ppid, e->uid, s->comm, e->filename);
+
+    // 3. Analiz ve Puanlama
     apply_decay(s);
 
     int score_gained = 0;
     int is_alarm = 0;
     char risk_reason[64] = {0};
 
-    // 3. Olay Türüne Göre Puanlama
     switch (e->type) {
         case EVENT_WRITE:
             s->write_burst++;
@@ -93,7 +80,6 @@ void analyze_event(struct process_stats *s, const struct event *e) {
                 snprintf(risk_reason, sizeof(risk_reason), "HONEYPOT WRITE");
             }
             break;
-
         case EVENT_RENAME:
             s->rename_burst++;
             score_gained = config.score_rename;
@@ -102,11 +88,9 @@ void analyze_event(struct process_stats *s, const struct event *e) {
                 snprintf(risk_reason, sizeof(risk_reason), "HONEYPOT RENAME");
             }
             break;
-
         case EVENT_UNLINK:
             score_gained = config.score_unlink;
             break;
-
         case EVENT_OPEN:
             if (is_honeypot_access(e->filename)) {
                 score_gained += config.score_honeypot;
@@ -115,7 +99,6 @@ void analyze_event(struct process_stats *s, const struct event *e) {
             break;
     }
 
-    // Dizin Hassasiyeti (Task 2.6)
     double multiplier = 1.0;
     if (e->filename) {
         if (strncmp(e->filename, "/home", 5) == 0) multiplier = 2.0;
@@ -125,16 +108,13 @@ void analyze_event(struct process_stats *s, const struct event *e) {
     }
     score_gained = (int)(score_gained * multiplier);
 
-    // Uzantı Cezası (Task 2.5)
     if ((e->type == EVENT_RENAME || e->type == EVENT_WRITE) && has_suspicious_extension(e->filename)) {
         score_gained += config.score_ext_penalty;
         if (strlen(risk_reason) == 0) snprintf(risk_reason, sizeof(risk_reason), "SUSPICIOUS EXTENSION");
     }
 
-    // 4. Puanı Ekle
     s->current_score += score_gained;
 
-    // 5. Alarm Kontrolü
     if (strlen(risk_reason) == 0) {
         if (s->current_score >= config.risk_threshold) {
             is_alarm = 1;
@@ -144,16 +124,27 @@ void analyze_event(struct process_stats *s, const struct event *e) {
         if (s->current_score >= config.risk_threshold) is_alarm = 1;
     }
 
-    // 6. Alarm
+    // 4. Alarm Loglama (Sadece Kritik Olaylar)
     if (is_alarm) {
-        LOG_ALARM("FIDYE YAZILIMI SUPHESI [%s]! PID: %d (%s) | File: %s | Score: %d/%d",
-                  risk_reason, s->pid, s->comm, e->filename, s->current_score, config.risk_threshold);
+        // Konsola (Renkli)
+        LOG_ALARM("FIDYE YAZILIMI SUPHESI [%s]! PID:%d UID:%d | File:%s | Score:%d",
+                  risk_reason, s->pid, e->uid, e->filename, s->current_score);
 
-        // Alarm sonrası reset
+        // Alerts Dosyasina (alerts.json)
+        log_alert_json(
+            "RANSOMWARE_DETECTED",
+            s->pid,
+            e->ppid,
+            e->uid,
+            s->comm,
+            e->filename,
+            risk_reason,
+            s->current_score
+        );
+
         s->current_score = 0;
         s->write_burst = 0;
         s->rename_burst = 0;
-        // Decay zamanını da sıfırla ki hemen tekrar decay yapmasın
         s->last_decay_time = time(NULL);
     }
 }

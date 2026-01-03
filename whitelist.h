@@ -3,24 +3,27 @@
 #define WHITELIST_H
 
 #include <stdbool.h>
+#include "uthash.h" // Uthash eklendi
 
-// Whitelist için bir üst limit (Bellek güvenliği için)
-#define MAX_WHITELIST_ENTRIES 32
+// Uthash yapısı için struct tanımı
+struct whitelist_entry {
+    char comm[16];      // Anahtar (Key) - Süreç Adı
+    UT_hash_handle hh;  // Uthash kancası
+};
 
 /**
- * @brief Global whitelist string'ini (config'den gelen) parçalar ve arama için hazırlar.
+ * @brief Global whitelist string'ini parçalar ve hash tablosuna ekler.
  */
 void init_whitelist(const char *whitelist_string);
 
 /**
  * @brief Verilen süreç adının (comm) beyaz listede olup olmadığını kontrol eder.
- * @return true Eğer süreç beyaz listedeyse.
+ * @return true Eğer süreç beyaz listedeyse (O(1) Karmaşıklık).
  */
 bool is_whitelisted(const char *comm);
 
 /**
  * @brief Program kapanırken ayrılan belleği temizler.
- * (Main fonksiyonunda cleanup çağrısı için gereklidir)
  */
 void cleanup_whitelist();
 

@@ -1,4 +1,4 @@
-/* tests/test_runner.c */
+/* tests/test_runner.c - v0.9.1 (Multi-Channel Log Support) */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,24 +12,20 @@
 #include "../common.h"
 #include "../state_manager.h"
 
-// detector.h güncellenmemişse diye manuel bildirim
+// Headerlarda guncellenmemis olma ihtimaline karsi manuel bildirimler
 extern int is_honeypot_access(const char *filename);
 
-#ifndef EVENT_DELETE
-#define EVENT_DELETE 6
+#ifndef EVENT_UNLINK
+#define EVENT_UNLINK 6
 #endif
 
 // --- MOCK (SAHTE) ALTYAPI ---
 
-// DÜZELTME 1: 'struct app_config config;' SILINDI.
-// Artık config.c içindeki gerçek tanımı kullanıyoruz (extern).
-
-// Logger Değişkenleri
 LogLevel last_log_level = -1;
 char last_log_msg[256];
 int alarm_triggered = 0;
 
-// Mock Logger Fonksiyonu
+// 1. Mock Standart Logger
 void log_message(LogLevel level, const char *file, int line, const char *format, ...) {
     last_log_level = level;
 
@@ -43,44 +39,72 @@ void log_message(LogLevel level, const char *file, int line, const char *format,
     va_end(args);
 }
 
-// --- YARDIMCI FONKSİYONLAR ---
+// 2. [DUZELTME] Mock Audit Log (Ham Veri - 6 Parametre)
+// logger.h ile uyumlu hale getirildi.
+void log_audit_json(const char *event_type,
+                    int pid, int ppid, int uid,
+                    const char *comm,
+                    const char *filename)
+{
+    // Test sirasinda JSON uretmiyoruz, bos govde yeterli.
+}
+
+// 3. [YENI] Mock Alert Log (Alarmlar - 8 Parametre)
+// detector.c artik bunu cagirdigi icin Mock'lanmasi sart.
+void log_alert_json(const char *event_type,
+                    int pid, int ppid, int uid,
+                    const char *comm,
+                    const char *filename,
+                    const char *risk_reason,
+                    int score)
+{
+    // Alarm durumunu log_message (LOG_ALARM) zaten yakaliyor.
+    // Burasi sadece link hatasini onlemek icin var.
+}
+
+// 4. Mock Libbpf
+int logger_libbpf_print(enum libbpf_print_level level, const char *format, va_list args) {
+    return 0;
+}
+
+
+// --- YARDIMCI FONKSIYONLAR ---
 
 void setup() {
     alarm_triggered = 0;
     last_log_level = -1;
     memset(last_log_msg, 0, sizeof(last_log_msg));
 
-    // Config'i sıfırla
+    // Config'i sifirla
     memset(&config, 0, sizeof(struct app_config));
 
-    // DÜZELTME 2: Faz 2 Puanlama Ayarları Eklendi
-    // Testlerin başarılı geçmesi için bu değerler kritik.
+    // Faz 2 Puanlama Ayarlari
     config.window_sec = 5;
-
-    // Risk Threshold: 100 puan
     config.risk_threshold = 100;
 
-    // Puanlar (Senaryoya göre ayarlandı)
-    config.score_write = 10;      // 10 yazma = 100 puan (Alarm)
-    config.score_rename = 20;     // 5 rename = 100 puan (Alarm)
-    config.score_unlink = 50;     // 2 silme = 100 puan (Alarm)
-    config.score_honeypot = 1000; // 1 honeypot = 1000 puan (Alarm)
+    config.score_write = 10;
+    config.score_rename = 20;
+    config.score_unlink = 50;
+    config.score_honeypot = 1000;
+    config.score_ext_penalty = 50;
 
-    // Eski eşikler (Geri uyumluluk için)
     config.write_threshold = 10;
     config.rename_threshold = 5;
 
     config.verbose_mode = 0;
-    strcpy(config.log_file, "");
 
-    // Honeypot dosya adı
+    // [DUZELTME] Eski 'log_file' yerine yeni alanlar
+    strcpy(config.service_log, "");
+    strcpy(config.alert_log, "");
+    strcpy(config.audit_log, "");
+
     strcpy(config.honeypot_file, "secret_passwords.txt");
 }
 
 #define PASS() printf("\033[0;32m[PASS]\033[0m\n")
 #define FAIL() printf("\033[0;31m[FAIL]\033[0m\n")
 
-// --- TEST SENARYOLARI ---
+// --- TEST SENARYOLARI (Aynen Korunuyor) ---
 
 void test_write_burst_detection() {
     printf("Test 1: Write Burst (Risk Puani ile Tespiti)... ");
@@ -95,18 +119,14 @@ void test_write_burst_detection() {
     struct event e;
     e.type = EVENT_WRITE;
     e.pid = 1001;
+    e.uid = 1000; e.ppid = 900; // Mock veri
 
-    // Config: score_write = 10, Threshold = 100.
-    // 11 adet yazma olayı gönderiyoruz.
-    // 10. yazmada (10*10=100) alarm çalmalı.
     for (int i = 0; i < 11; i++) {
         analyze_event(&p, &e);
     }
 
-    // Yeni mantıkta alarm çalınca burst sıfırlanıyor (p.write_burst == 0 kontrolü bu yüzden geçerli)
-    if (alarm_triggered == 1) {
-        PASS();
-    } else {
+    if (alarm_triggered == 1) PASS();
+    else {
         FAIL();
         printf("   -> Beklenen: Alarm tetiklenmeliydi. (Score: %d)\n", p.current_score);
         exit(1);
@@ -124,15 +144,14 @@ void test_normal_user_behavior() {
 
     struct event e;
     e.type = EVENT_WRITE;
+    e.uid = 1000;
 
-    // 5 yazma * 10 puan = 50 puan. Threshold(100) altında kalmalı.
     for (int i = 0; i < 5; i++) {
         analyze_event(&p, &e);
     }
 
-    if (alarm_triggered == 0) {
-        PASS();
-    } else {
+    if (alarm_triggered == 0) PASS();
+    else {
         FAIL();
         printf("   -> Hata: Alarm caldi. (Score: %d)\n", p.current_score);
         exit(1);
@@ -146,19 +165,17 @@ void test_window_reset_logic() {
     struct process_stats p;
     memset(&p, 0, sizeof(p));
     p.pid = 3003;
-    p.current_score = 90; // Alarm sınırına yakın
-    p.window_start_time = time(NULL) - 10; // 10 saniye önce (Süre dolmuş)
+    p.current_score = 90;
+    p.window_start_time = time(NULL) - 10;
 
     struct event e;
-    e.type = EVENT_WRITE; // +10 puan gelecek
+    e.type = EVENT_WRITE;
+    e.uid = 1000;
 
-    // analyze_event önce pencere kontrolü yapıp skoru 0'a çekecek.
-    // Sonra +10 ekleyecek. Sonuç: 10 puan olmalı (Alarm yok).
     analyze_event(&p, &e);
 
-    if (alarm_triggered == 0 && p.current_score == 10) {
-        PASS();
-    } else {
+    if (alarm_triggered == 0 && p.current_score == 10) PASS();
+    else {
         FAIL();
         printf("   -> Hata: Zaman penceresi skoru sifirlamadi. (Score: %d)\n", p.current_score);
         exit(1);
@@ -176,17 +193,15 @@ void test_rename_burst_detection() {
 
     struct event e;
     e.type = EVENT_RENAME;
+    e.uid = 1000;
     strcpy(e.filename, "veri.txt.locked");
 
-    // Config: score_rename = 20. Threshold = 100.
-    // 6 * 20 = 120 Puan -> Alarm.
     for (int i = 0; i < 6; i++) {
         analyze_event(&p, &e);
     }
 
-    if (alarm_triggered == 1) {
-        PASS();
-    } else {
+    if (alarm_triggered == 1) PASS();
+    else {
         FAIL();
         printf("   -> Hata: Rename limiti asilmasina ragmen alarm calmad.\n");
         exit(1);
@@ -204,15 +219,13 @@ void test_honeypot_access() {
 
     struct event e;
     e.type = EVENT_OPEN;
-    // Setup'da "secret_passwords.txt" tanımladık
+    e.uid = 1000;
     strcpy(e.filename, "/var/www/secret_passwords.txt");
 
-    // Config: score_honeypot = 1000. Anında alarm.
     analyze_event(&p, &e);
 
-    if (alarm_triggered == 1) {
-        PASS();
-    } else {
+    if (alarm_triggered == 1) PASS();
+    else {
         FAIL();
         printf("   -> Hata: Honeypot dosyasina erisim alarm uretmedi!\n");
         exit(1);
@@ -228,20 +241,17 @@ void test_deletion_event() {
     p.pid = 6006;
 
     struct event e;
-    e.type = EVENT_DELETE;
+    e.type = EVENT_UNLINK;
+    e.uid = 1000;
     strcpy(e.filename, "onemli.pdf");
 
-    // Config: score_unlink = 50. Threshold = 100.
-    // 1. Silme -> 50 puan (Alarm Yok)
     analyze_event(&p, &e);
     assert(alarm_triggered == 0);
 
-    // 2. Silme -> 100 puan (Alarm Var)
     analyze_event(&p, &e);
 
-    if (alarm_triggered == 1) {
-        PASS();
-    } else {
+    if (alarm_triggered == 1) PASS();
+    else {
         FAIL();
         printf("   -> Hata: 2. dosya silme isleminde alarm calmad.\n");
         exit(1);

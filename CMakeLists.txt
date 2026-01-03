@@ -151,3 +151,5 @@ install(FILES ransom-bpf.service DESTINATION /etc/systemd/system COMPONENT syste
 
 # Bilgi Mesajı
 message(STATUS "Systemd servisi icin: 'sudo make install' ardindan 'sudo systemctl enable --now ransom-bpf' calistirin.")
+
+# bpftool btf dump file /sys/kernel/btf/vmlinux format c > vmlinux.h

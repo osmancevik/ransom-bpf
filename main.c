@@ -1,4 +1,4 @@
-/* main.c - v0.7.0 (Graceful Exit & Fixed Summary) */
+/* main.c - v0.7.5 (Self-Monitoring & Silent Startup) */
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -29,28 +29,26 @@ static void handle_crash(int sig) {
     exit(1);
 }
 
-static int print_libbpf_log(enum libbpf_print_level level, const char *format, va_list args) {
-    if (!config.verbose_mode && (level == LIBBPF_DEBUG || level == LIBBPF_INFO)) return 0;
-    return vfprintf(stderr, format, args);
-}
-
+// Olay Isleyicisi (Callback)
 int handle_event(void *ctx, void *data, size_t size) {
     if (!data) return 0;
     const struct event *e = data;
 
-    // Kendimizi filtrele (Sonsuz döngü koruması)
+    // [KRITIK] Kendimizi filtrele (Sonsuz dongu ve Feedback Loop korumasi)
+    // Ajanin kendi yazdigi loglari analiz etmesini engeller.
     if ((int)e->pid == own_pid) return 0;
 
-    // Süreç çıkış olayı
+    // Surec cikis olayi
     if (e->type == EVENT_EXIT) {
         remove_process(e->pid);
         return 0;
     }
 
-    // Durum takibi ve Beyaz liste kontrolü
+    // Durum takibi ve Beyaz liste kontrolu
     struct process_stats *s = get_process_stats(e->pid, e->comm);
     if (!s) return 0;
 
+    // Dinamik Whitelist kontrolu (O(1) Hash Tablosu)
     if (is_whitelisted(s->comm)) return 0;
 
     // Analiz Motoru
@@ -64,21 +62,19 @@ int main(int argc, char **argv) {
     struct ring_buffer *rb = NULL;
     int err;
 
-    own_pid = getpid();
+    own_pid = getpid(); // Ajanin PID'sini al
 
     // --- 1. HAZIRLIK ---
     init_config_defaults();
 
-    // --- 2. CLI ARGÜMAN KONTROLÜ (ÖNCELİKLİ - GRACEFUL EXIT FIX) ---
-    // Eğer --help veya --version çağrıldıysa, parse_arguments 1 döner.
-    // Bu durumda dosya işlemleri yapmadan, eBPF yüklemeden temizce çıkarız.
-    // Bu sayede 'htop' üzerinde zombi süreçler kalmaz.
+    // --- 2. CLI ARGUMAN KONTROLU (ONCELIKLI - GRACEFUL EXIT) ---
+    // Eger --help veya --version cagrilmissa temizce cik.
     if (parse_arguments(argc, argv) == 1) {
         return 0;
     }
 
-    // --- 3. KONFİGÜRASYON YÜKLEME ---
-    // Eğer CLI ile özel bir config (-c) verilmişse onu yükle
+    // --- 3. KONFIGURASYON YUKLEME ---
+    // Eger CLI ile ozel bir config (-c) verilmisse onu yukle
     if (strlen(config.config_path) > 0) {
         if (access(config.config_path, F_OK) == 0) {
             load_config_file(config.config_path);
@@ -88,7 +84,7 @@ int main(int argc, char **argv) {
             return 1;
         }
     }
-    // Özel config yoksa varsayılan yerlere bak
+    // Ozel config yoksa varsayilan yerlere bak
     else {
         if (access("ransom.conf", F_OK) == 0) {
             load_config_file("ransom.conf");
@@ -101,15 +97,18 @@ int main(int argc, char **argv) {
     }
 
     // --- 4. SISTEM BASLATMA ---
-    // Loglama ve Whitelist, config yüklendikten sonra başlatılır
+    // Loglama ve Whitelist, config yuklendikten sonra baslatilir
     init_logger();
     init_whitelist(config.whitelist_str);
-    libbpf_set_print(print_libbpf_log);
 
-    // Başlangıç Logunu Bas
+    // [YENI] Libbpf gurultusunu filtrele (Sessiz Baslatma)
+    // logger.c icindeki gelismis fonksiyonu kullaniyoruz.
+    libbpf_set_print(logger_libbpf_print);
+
+    // Baslangic Logunu Bas
     LOG_INFO("Baslatiliyor... (Config Kaynagi: %s)", config_source);
 
-    // [DÜZELTME] Özet tabloyu ARTIK HER ZAMAN GÖSTERİYORUZ (if bloğu kaldırıldı)
+    // Ozet tabloyu goster
     print_startup_summary();
 
     signal(SIGINT, handle_exit);
@@ -117,7 +116,7 @@ int main(int argc, char **argv) {
     signal(SIGSEGV, handle_crash);
     signal(SIGABRT, handle_crash);
 
-    // --- 5. eBPF Yükleme ---
+    // --- 5. eBPF Yukleme ---
     skel = hello_kern__open();
     if (!skel) { LOG_ERR("eBPF iskeleti acilamadi."); return 1; }
 
