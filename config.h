@@ -31,6 +31,8 @@ struct app_config {
     int score_honeypot;
     int score_ext_penalty;
     int risk_threshold;
+    int active_blocking;
+
 
     // [YENI] Log Dosyasi Yollari (Eski 'log_file' kaldirildi)
     char service_log[256];
