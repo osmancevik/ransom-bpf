@@ -9,16 +9,16 @@
 
 ---
 
-## Table of Contents
-- [Key Features](#-key-features)
-- [Architecture](#-architecture)
-- [Prerequisites](#-prerequisites)
-- [Installation & Build](#-installation--build)
-- [Configuration](#-configuration)
-- [Usage](#-usage)
-- [Testing & Simulation](#-testing--simulation)
-- [Logging & Forensics](#-logging--forensics)
-- [License](#-license)
+## 📖 Table of Contents
+- [Key Features](#key--features)
+- [Architecture](#architecture)
+- [Prerequisites](#prerequisites)
+- [Installation & Build](#installation--build)
+- [Configuration](#configuration)
+- [Usage](#usage)
+- [Testing & Simulation](#testing--simulation)
+- [Logging & Forensics](#logging--forensics)
+- [License](#license)
 
 ---
 
