@@ -196,7 +196,7 @@ RansomBPF provides multi-channel logging for SOC/SIEM integration:
 
 ## Acknowledgments
 This project was developed under the supervision of **Dr. Hasan Yetis**
-- [View Academic Profile]([https://scholar.google.com/citations?user=Nwp3Q0oAAAAJ&hl=tr])
+- [View Academic Profile](https://scholar.google.com/citations?user=Nwp3Q0oAAAAJ&hl=tr)
 
 ##  License
 
