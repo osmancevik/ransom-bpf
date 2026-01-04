@@ -1,23 +1,37 @@
+# /etc/systemd/system/ransom-bpf.service
+# RansomBPF Service Unit File - v0.9.0
+#
+# This file manages the lifecycle of the RansomBPF protection agent.
+# It ensures the service starts automatically at boot, restarts on failure,
+# and runs with the necessary privileges for eBPF instrumentation.
+
 [Unit]
-Description=eBPF Ransomware Detection Service
+Description=RansomBPF - Real-time Ransomware Detection & Prevention System
 Documentation=https://github.com/osmancevik/ransom-bpf
+# Start after network stack and audit daemon are ready
 After=network.target auditd.service
+Requires=network.target
 
 [Service]
 Type=simple
-# Programın kurulu olacağı yol (CMake install ile buraya gidecek)
-ExecStart=/usr/local/bin/ransom_bpf
-# Konfigürasyon dosyalarını arayacağı varsayılan dizin
-WorkingDirectory=/etc/ransom-bpf
-# Çökerse veya öldürülürse 5 saniye sonra yeniden başlat
+# The main executable command.
+# Note: eBPF requires root privileges, so User=root is implicit/required.
+ExecStart=/usr/local/bin/ransom_bpf --config /etc/ransom-bpf/ransom.conf
+
+# Restart Policy: Essential for mission-critical security services
+# If the agent crashes (SEGFAULT) or is killed, restart it automatically.
 Restart=always
-RestartSec=5
-# Logları journald'ye yönlendir (StandardOutput/Error)
+RestartSec=5s
+
+# Environment Variables
+# Ensure the agent can find necessary system tools (if any)
+Environment=PATH=/usr/bin:/usr/local/bin:/usr/sbin
+
+# Standard Output/Error Logging
+# Redirect stdout/stderr to syslog (viewable via journalctl -u ransom-bpf)
 StandardOutput=journal
 StandardError=journal
-# eBPF işlemleri için root yetkisi şarttır
-User=root
-Group=root
 
 [Install]
+# Enable this service for the standard multi-user runlevel (Runlevel 3/5)
 WantedBy=multi-user.target

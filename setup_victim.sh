@@ -1,29 +1,42 @@
 #!/bin/bash
+#
+# setup_victim.sh - RansomBPF Test Environment Provisioner
+# Version: 0.9.0
+#
+# Description:
+#   Prepares a controlled "victim" directory containing dummy files (PDF, DOCX)
+#   and a strategic honeypot file. This ensures a consistent baseline for
+#   validating the ransomware detection engine (Unit & Integration Tests).
+#
+# Usage:
+#   ./setup_victim.sh
+#
 
-# --- RansomBPF Test Ortamı Hazırlayıcı ---
-# Hedef: /home/developer/test_files
-
+# Configuration
 TARGET_DIR="/home/developer/test_files"
+HONEYPOT_FILE="$TARGET_DIR/secret_passwords.txt"
 
-echo "[*] Test klasoru olusturuluyor: $TARGET_DIR"
+echo "[*] Initializing test environment at: $TARGET_DIR"
+
+# Ensure the directory exists
 mkdir -p "$TARGET_DIR"
 
-# Eski dosyalar varsa temizle (Temiz baslangic)
+# Clean up previous test artifacts to ensure a fresh baseline
 rm -f "$TARGET_DIR"/*
 
-echo "[*] 50 adet sahte kurban dosyasi olusturuluyor..."
+echo "[*] Generating 50 dummy victim files..."
 
 for i in {1..50}; do
-    # Docx taklidi
-    echo "Bu dosya cok gizli sirket verisi icerir. Dosya numarasi: $i" > "$TARGET_DIR/butce_raporu_$i.docx"
-    # PDF taklidi
-    echo "Musteri veritabani kayitlari $i" > "$TARGET_DIR/musteri_listesi_$i.pdf"
+    # Simulate DOCX files
+    echo "Confidential corporate data. File ID: $i" > "$TARGET_DIR/budget_report_$i.docx"
+
+    # Simulate PDF files
+    echo "Customer database record $i" > "$TARGET_DIR/customer_list_$i.pdf"
 done
 
-# Honeypot (Yem) dosyasi - Config dosyanla uyumlu olmali!
-# RansomBPF config dosyasinda belirtecegimiz yem dosya:
-HONEYPOT_FILE="$TARGET_DIR/secret_passwords.txt"
+# Create the Honeypot (Trap) file
+# Note: This filename must match the 'HONEYPOT_FILE' setting in ransom.conf
 echo "admin:123456root:toor" > "$HONEYPOT_FILE"
-echo "[*] Honeypot dosyasi eklendi: $HONEYPOT_FILE"
+echo "[*] Honeypot file deployed: $HONEYPOT_FILE"
 
-echo "[SUCCESS] Kurban ortami hazir! Saldiri simulasyonuna baslayabilirsin."
+echo "[SUCCESS] Victim environment is ready! You can now launch the simulation."

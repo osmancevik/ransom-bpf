@@ -1,155 +1,97 @@
 cmake_minimum_required(VERSION 3.16)
-
-# Define the project name
 project(ransom_bpf C)
 
-set(CMAKE_C_STANDARD 23)
-set(CMAKE_C_STANDARD_REQUIRED ON)
+# --- Project Metadata ---
+set(PROJECT_VERSION "0.9.0")
+set(CMAKE_C_STANDARD 11)
 
-# --- 1. Find Dependencies ---
+# --- Compilation Flags (Safety & Performance) ---
+# -Wall -Wextra: Enable comprehensive warning levels
+# -O2: Optimize for performance without sacrificing debuggability
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -O2 -Wall -Wextra")
 
+# --- Dependencies ---
+# Libbpf and Elf are critical for eBPF operations
 find_package(PkgConfig REQUIRED)
-pkg_search_module(LIBBPF REQUIRED libbpf)
-pkg_search_module(LIBELF REQUIRED libelf)
-find_program(CLANG_EXECUTABLE clang REQUIRED)
-find_program(BPFTOOL_EXECUTABLE bpftool REQUIRED)
+pkg_check_modules(LIBBPF REQUIRED libbpf)
+pkg_check_modules(LIBELF REQUIRED libelf)
 
+# --- eBPF Kernel Component (hello_kern.c) ---
+# This section compiles the BPF program into an object file (.o) and
+# generates the userspace skeleton (.skel.h) for easy interaction.
 
-# --- 2. Define eBPF Kernel Program Build ---
-
-set(KERNEL_SRC ${CMAKE_CURRENT_SOURCE_DIR}/hello_kern.c)
-set(KERNEL_OBJ ${CMAKE_CURRENT_BINARY_DIR}/hello_kern.o)
-set(SKELETON_HEADER ${CMAKE_CURRENT_BINARY_DIR}/hello_kern.skel.h)
-
-# Step 2a: Custom command to compile eBPF code
-add_custom_command(
-        OUTPUT ${KERNEL_OBJ}
-        COMMAND ${CLANG_EXECUTABLE} -g -O2 -target bpf -c ${KERNEL_SRC} -o ${KERNEL_OBJ}
-        DEPENDS ${KERNEL_SRC}
-        COMMENT "Compiling eBPF kernel code: ${KERNEL_SRC}"
+# 1. Compile Kernel Code to BPF Object
+execute_process(
+        COMMAND clang -g -O2 -target bpf -D__TARGET_ARCH_x86 -c hello_kern.c -o ${CMAKE_CURRENT_BINARY_DIR}/hello_kern.o
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        RESULT_VARIABLE CLANG_RESULT
 )
 
-# Step 2b: Custom command to generate skeleton header
-add_custom_command(
-        OUTPUT ${SKELETON_HEADER}
-        COMMAND ${BPFTOOL_EXECUTABLE} gen skeleton ${KERNEL_OBJ} > ${SKELETON_HEADER}
-        DEPENDS ${KERNEL_OBJ}
-        COMMENT "Generating eBPF skeleton: ${SKELETON_HEADER}"
+if (NOT CLANG_RESULT EQUAL 0)
+    message(FATAL_ERROR "Failed to compile eBPF kernel program (hello_kern.c)")
+endif()
+
+# 2. Generate Skeleton Header (hello_kern.skel.h)
+# This header allows the userspace agent to load and attach the BPF program easily.
+execute_process(
+        COMMAND bpftool gen skeleton ${CMAKE_CURRENT_BINARY_DIR}/hello_kern.o
+        OUTPUT_FILE ${CMAKE_CURRENT_BINARY_DIR}/hello_kern.skel.h
+        RESULT_VARIABLE SKELETON_RESULT
 )
 
-# Step 2c: Custom target to manage eBPF build
-add_custom_target(
-        ebpf_build
-        DEPENDS ${SKELETON_HEADER}
-)
+if (NOT SKELETON_RESULT EQUAL 0)
+    message(FATAL_ERROR "Failed to generate BPF skeleton header")
+endif()
 
+# Include current directory to find headers
+include_directories(${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_BINARY_DIR})
 
-# --- 2.5 (IDE FIX) Tell CLion about the kernel source ---
-
-# We create a "dummy" library target.
-# This target is NOT used for the actual build.
-# It exists ONLY to help the CLion editor index our kernel file
-# and understand its include paths (like vmlinux.h).
-
-# BU KISIMLARI YORUM SATIRINA ALIN:
-# add_library(kern_ide_helper OBJECT
-#        ${KERNEL_SRC}
-# )
-
-# Now, tell this dummy target where to find its headers.
-# target_include_directories(kern_ide_helper
-#        PRIVATE
-#        # 1. The project directory (for vmlinux.h)
-#        ${CMAKE_CURRENT_SOURCE_DIR}
-#        # 2. The generated build directory (for skeleton, if needed)
-#        ${CMAKE_CURRENT_BINARY_DIR}
-# )
-
-# --- 3. Define User-Space C Agent Build ---
-
-# hello_user.c yerine yeni dosyaları ekliyoruz
-set(USER_SRC
-        ${CMAKE_CURRENT_SOURCE_DIR}/main.c
-        ${CMAKE_CURRENT_SOURCE_DIR}/state_manager.c
-        ${CMAKE_CURRENT_SOURCE_DIR}/detector.c
-        ${CMAKE_CURRENT_SOURCE_DIR}/config.c
-        ${CMAKE_CURRENT_SOURCE_DIR}/logger.c
-        ${CMAKE_CURRENT_SOURCE_DIR}/whitelist.c
-        ${CMAKE_CURRENT_SOURCE_DIR}/cli.c
-        # logger.h header olduğu için kaynak dosyaya eklemeye gerek yok ama IDE için iyi olur
-)
-
-
-# Add the user-space executable target
-add_executable(ransom_bpf ${USER_SRC})
-
-# Ensure user-space builds AFTER skeleton is generated
-add_dependencies(ransom_bpf ebpf_build)
-
-# Add include directories for the user-space target
-target_include_directories(ransom_bpf
-        PRIVATE
-        # For skeleton header
-        ${CMAKE_CURRENT_BINARY_DIR}
-        # For vmlinux.h (also needed by user-space sometimes)
-        ${CMAKE_CURRENT_SOURCE_DIR}
-        # For libbpf and libelf
-        ${LIBBPF_INCLUDE_DIRS}
-        ${LIBELF_INCLUDE_DIRS}
+# --- Userspace Agent (Main Executable) ---
+# The primary executable that loads the BPF program and runs the logic.
+add_executable(ransom_bpf
+        main.c
+        logger.c
+        state_manager.c
+        detector.c
+        config.c
+        whitelist.c
+        cli.c
+        # Headers are included here for IDE indexing support
+        common.h
+        logger.h
+        state_manager.h
+        detector.h
+        config.h
+        whitelist.h
+        cli.h
+        uthash.h
 )
 
 # Link against required libraries
-target_link_libraries(ransom_bpf
-        PRIVATE
-        ${LIBBPF_LIBRARIES}
-        ${LIBELF_LIBRARIES}
-)
+target_link_libraries(ransom_bpf ${LIBBPF_LIBRARIES} ${LIBELF_LIBRARIES} z)
 
-# --- 4. (Optional) Install) ---
+# --- Installation & Deployment Rules ---
+# These rules define where files go when running 'sudo make install'
+
+# 1. Install Binary -> /usr/local/bin/ransom_bpf
 install(TARGETS ransom_bpf DESTINATION bin)
 
-# --- 5. Unit Tests (Birim Testleri) ---
+# 2. Install Configuration -> /etc/ransom-bpf/ransom.conf
+install(FILES ransom.conf DESTINATION /etc/ransom-bpf)
 
-# Test calistirilabilir dosyasi
-add_executable(run_tests
-        tests/test_runner.c
-        detector.c
-        state_manager.c
-        whitelist.c   #
-        config.c      #
-        # Not: main.c ve logger.c bilerek eklenmedi. Mocklaniyor.
-)
+# 3. Install Systemd Service -> /etc/systemd/system/ransom-bpf.service
+install(FILES ransom-bpf.service DESTINATION /etc/systemd/system)
 
-# Testlerin ihtiyac duydugu header yollari
-target_include_directories(run_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+# 4. Install Helper Scripts (Simulation Tools) -> /usr/local/share/ransom-bpf/tools
+install(FILES setup_victim.sh ransom_simulator.py
+        DESTINATION /usr/local/share/ransom-bpf/tools
+        PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ GROUP_READ WORLD_READ)
 
-# CTest entegrasyonu (Opsiyonel: make test komutu icin)
-enable_testing()
-add_test(NAME AllTests COMMAND run_tests)
-
-# --- 6. Config Dosyasını Otomatik Kopyala (Gelişmiş) ---
-# Derleme (Make) her yapıldığında, eğer kaynak dosya değişmişse build klasörüne kopyalar.
-add_custom_command(
-        TARGET ransom_bpf POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        ${CMAKE_CURRENT_SOURCE_DIR}/ransom.conf
-        ${CMAKE_CURRENT_BINARY_DIR}/ransom.conf
-        COMMENT "Guncel ransom.conf dosyasini build klasorune kopyaliyor..."
-)
-
-# --- 7. Sistem Kurulumu (Systemd Entegrasyonu) ---
-
-# 1. Binary dosyasını standart yola kopyala (/usr/local/bin)
-install(TARGETS ransom_bpf DESTINATION bin)
-
-# 2. Konfigürasyon dosyasını /etc/ransom-bpf/ altına kopyala
-install(FILES ransom.conf DESTINATION /etc/ransom-bpf COMPONENT config)
-
-# 3. Systemd servis dosyasını kopyala
-# Not: Systemd yolu dağıtıma göre değişebilir ama genelde burasıdır.
-install(FILES ransom-bpf.service DESTINATION /etc/systemd/system COMPONENT system)
-
-# Bilgi Mesajı
-message(STATUS "Systemd servisi icin: 'sudo make install' ardindan 'sudo systemctl enable --now ransom-bpf' calistirin.")
-
-# bpftool btf dump file /sys/kernel/btf/vmlinux format c > vmlinux.h
+# --- Output Summary ---
+message(STATUS "---------------------------------------------------")
+message(STATUS " RansomBPF v${PROJECT_VERSION} Configuration Complete")
+message(STATUS "---------------------------------------------------")
+message(STATUS " Target Arch    : x86_64")
+message(STATUS " Compiler       : ${CMAKE_C_COMPILER}")
+message(STATUS " Install Prefix : ${CMAKE_INSTALL_PREFIX}")
+message(STATUS "---------------------------------------------------")

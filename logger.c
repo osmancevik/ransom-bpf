@@ -1,4 +1,17 @@
-/* logger.c - v0.9.0 (Multi-File Logging Implementation) */
+/**
+ * @file logger.c
+ * @brief Multi-channel Logging System Implementation.
+ * @version 0.9.0
+ *
+ * Implements a centralized logging facility that routes messages to three distinct channels:
+ * - Service Log: Operational status and debug messages (human-readable).
+ * - Alert Log: High-severity security incidents (JSON).
+ * - Audit Log: Raw stream of system events (JSON).
+ *
+ * Update Note (v0.9.0): Integrated file and line number into the log format
+ * to resolve unused parameter warnings and improve traceability.
+ */
+
 #include "logger.h"
 #include "config.h"
 #include <stdio.h>
@@ -9,13 +22,27 @@
 #include <sys/time.h>
 #include <unistd.h>
 
-// [YENI] 3 Ayri Dosya Pointer'i
-static FILE *f_service = NULL; // service.log
-static FILE *f_alerts  = NULL; // alerts.json
-static FILE *f_audit   = NULL; // audit.json
+// --- STATIC FILE POINTERS (Channels) ---
 
-// --- YARDIMCI FONKSIYONLAR ---
+/** @brief File pointer for general service logs (service.log). */
+static FILE *f_service = NULL;
 
+/** @brief File pointer for high-priority alerts (alerts.json). */
+static FILE *f_alerts  = NULL;
+
+/** @brief File pointer for raw audit events (audit.json). */
+static FILE *f_audit   = NULL;
+
+// --- HELPER FUNCTIONS ---
+
+/**
+ * @brief Generates a high-precision timestamp string.
+ *
+ * Format: "YYYY-MM-DD HH:MM:SS.mmm"
+ *
+ * @param buffer Output buffer.
+ * @param size Size of the output buffer.
+ */
 static void get_timestamp(char *buffer, size_t size) {
     struct timeval tv;
     struct tm *tm_info;
@@ -26,6 +53,11 @@ static void get_timestamp(char *buffer, size_t size) {
     snprintf(buffer, size, "%s.%03ld", fmt_buffer, tv.tv_usec / 1000);
 }
 
+/**
+ * @brief Converts log level enum to string representation.
+ * @param level Log severity level.
+ * @return String literal (e.g., "INFO", "ALARM").
+ */
 static const char* get_level_string(LogLevel level) {
     switch (level) {
         case LOG_LEVEL_INFO:  return "INFO";
@@ -37,6 +69,11 @@ static const char* get_level_string(LogLevel level) {
     }
 }
 
+/**
+ * @brief Returns the ANSI color code associated with a log level.
+ * @param level Log severity level.
+ * @return ANSI escape code string.
+ */
 static const char* get_level_color(LogLevel level) {
     switch (level) {
         case LOG_LEVEL_INFO:  return ANSI_COLOR_GREEN;
@@ -48,6 +85,15 @@ static const char* get_level_color(LogLevel level) {
     }
 }
 
+/**
+ * @brief Escapes special characters for JSON string compatibility.
+ *
+ * Handles double quotes and backslashes to ensure valid JSON output.
+ *
+ * @param input Raw string.
+ * @param output Output buffer.
+ * @param out_len Size of the output buffer.
+ */
 static void json_escape(const char *input, char *output, size_t out_len) {
     size_t i = 0, j = 0;
     while (input[i] != '\0' && j < out_len - 2) {
@@ -59,35 +105,52 @@ static void json_escape(const char *input, char *output, size_t out_len) {
     output[j] = '\0';
 }
 
-// --- ANA FONKSIYONLAR ---
+// --- CORE FUNCTIONS ---
 
+/**
+ * @brief Initializes the logging subsystem.
+ *
+ * Opens file streams for all configured log channels.
+ * Prints error messages to stderr if a file cannot be opened.
+ */
 void init_logger() {
     // 1. Service Log
     if (strlen(config.service_log) > 0) {
         f_service = fopen(config.service_log, "a");
-        if (!f_service) perror("Service Log acilamadi");
+        if (!f_service) perror("Failed to open Service Log");
     }
 
     // 2. Alert Log
     if (strlen(config.alert_log) > 0) {
         f_alerts = fopen(config.alert_log, "a");
-        if (!f_alerts) perror("Alert Log acilamadi");
+        if (!f_alerts) perror("Failed to open Alert Log");
     }
 
     // 3. Audit Log
     if (strlen(config.audit_log) > 0) {
         f_audit = fopen(config.audit_log, "a");
-        if (!f_audit) perror("Audit Log acilamadi");
+        if (!f_audit) perror("Failed to open Audit Log");
     }
 }
 
+/**
+ * @brief Closes all active log file streams.
+ */
 void finalize_logger() {
     if (f_service) { fclose(f_service); f_service = NULL; }
     if (f_alerts)  { fclose(f_alerts);  f_alerts = NULL; }
     if (f_audit)   { fclose(f_audit);   f_audit = NULL; }
 }
 
+/**
+ * @brief Custom print callback for libbpf integration.
+ *
+ * Redirects libbpf internal logs to the service log file or stderr
+ * depending on the verbose mode setting.
+ */
 int logger_libbpf_print(enum libbpf_print_level level, const char *format, va_list args) {
+    // If not in verbose mode, suppress info/debug logs from libbpf,
+    // but allow warnings/errors. Redirect to file if open.
     if (!config.verbose_mode && level != LIBBPF_WARN) {
         if (f_service) {
             fprintf(f_service, "[LIBBPF] ");
@@ -96,10 +159,15 @@ int logger_libbpf_print(enum libbpf_print_level level, const char *format, va_li
         }
         return 0;
     }
+    // In verbose mode, print to stderr as usual
     return vfprintf(stderr, format, args);
 }
 
-// [YENI] Audit Log (audit.json) -> Ham veriler
+/**
+ * @brief Logs a raw system event to the Audit Log (JSON).
+ *
+ * Captures the event details without risk analysis. Used for forensic auditing.
+ */
 void log_audit_json(const char *event_type,
                     int pid, int ppid, int uid,
                     const char *comm,
@@ -116,19 +184,21 @@ void log_audit_json(const char *event_type,
     json_escape(filename ? filename : "", safe_filename, sizeof(safe_filename));
     json_escape(comm ? comm : "", safe_comm, sizeof(safe_comm));
 
-    // Sadelestirilmis JSON (Risk ve Skor yok, sadece olay)
+    // Simplified JSON structure (Event-centric)
     fprintf(f_audit,
         "{\"timestamp\": \"%s\", \"type\": \"%s\", "
         "\"pid\": %d, \"ppid\": %d, \"uid\": %d, \"comm\": \"%s\", "
         "\"filename\": \"%s\"}\n",
         timestamp, event_type, pid, ppid, uid, safe_comm, safe_filename);
 
-    // Audit log cok yogun olabilir, her satirda flush performansi dusurebilir
-    // Ancak veri butunlugu icin simdilik flush ediyoruz.
     fflush(f_audit);
 }
 
-// [YENI] Alert Log (alerts.json) -> Sadece kritik alarmlar
+/**
+ * @brief Logs a high-priority security alert to the Alert Log (JSON).
+ *
+ * Includes detailed risk context, reason, and score.
+ */
 void log_alert_json(const char *event_type,
                     int pid, int ppid, int uid,
                     const char *comm,
@@ -158,7 +228,11 @@ void log_alert_json(const char *event_type,
     fflush(f_alerts);
 }
 
-// System Log (service.log)
+/**
+ * @brief Standard logging function for service messages.
+ *
+ * Writes formatted messages to both stdout (with colors) and the service log file.
+ */
 void log_message(LogLevel level, const char *file, int line, const char *format, ...) {
     char timestamp[64];
     get_timestamp(timestamp, sizeof(timestamp));
@@ -167,22 +241,26 @@ void log_message(LogLevel level, const char *file, int line, const char *format,
     const char *level_str = get_level_string(level);
     va_list args;
 
-    // 1. TERMINAL CIKTISI
+    // 1. TERMINAL OUTPUT (Human-readable with colors)
     if (config.verbose_mode || level != LOG_LEVEL_DEBUG) {
         va_start(args, format);
         fprintf(stdout, "%s", get_level_color(level));
-        fprintf(stdout, "[%s] [%-5s] [%d] ", timestamp, level_str, pid);
+        // FIX: Added file and line info to resolve unused parameter warnings
+        fprintf(stdout, "[%s] [%-5s] [%d] [%s:%d] ", timestamp, level_str, pid, file, line);
         vfprintf(stdout, format, args);
         fprintf(stdout, "%s\n", ANSI_COLOR_RESET);
         va_end(args);
     }
 
-    // 2. SERVICE LOG DOSYASI
+    // 2. SERVICE LOG FILE (Persistent record)
     if (f_service) {
         va_start(args, format);
-        fprintf(f_service, "[%s] [%-5s] [%d] ", timestamp, level_str, pid);
+        // FIX: Added file and line info here as well
+        fprintf(f_service, "[%s] [%-5s] [%d] [%s:%d] ", timestamp, level_str, pid, file, line);
         vfprintf(f_service, format, args);
         fprintf(f_service, "\n");
+
+        // Always flush errors and alarms to ensure they are written immediately
         if (level == LOG_LEVEL_ERROR || level == LOG_LEVEL_ALARM) {
             fflush(f_service);
         }

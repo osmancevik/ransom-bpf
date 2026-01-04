@@ -1,17 +1,29 @@
-/* cli.c - v0.9.0 (Multi-Channel Log Support) */
+/**
+ * @file cli.c
+ * @brief Command Line Interface (CLI) implementation.
+ * @version 0.9.0
+ *
+ * Handles argument parsing, help display, and startup summary visualization.
+ * Conforms to POSIX utility syntax guidelines.
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <getopt.h>
 #include <string.h>
-#include <unistd.h>  // getpid() icin
+#include <unistd.h>
 #include "cli.h"
 #include "config.h"
 #include "common.h"
 #include "logger.h"
 
-// ASCII Art Banner
+/**
+ * @brief Prints the ASCII art banner to stdout.
+ *
+ * Uses ANSI cyan color code for visual distinction.
+ */
 static void print_banner() {
-    printf("\033[1;36m"); // Cyan Rengi
+    printf("\033[1;36m"); // ANSI Cyan
     printf("  ____                                  ____  ____  _____ \n");
     printf(" |  _ \\ __ _ _ __  ___  ___  _ __ ___  | __ )|  _ \\|  ___|\n");
     printf(" | |_) / _` | '_ \\/ __|/ _ \\| '_ ` _ \\ |  _ \\| |_) | |_   \n");
@@ -20,21 +32,39 @@ static void print_banner() {
     printf("\033[0m\n");
 }
 
+/**
+ * @brief Displays the standard help message.
+ *
+ * Formats the output according to POSIX utility syntax conventions.
+ *
+ * @param prog_name The name of the executable (argv[0]).
+ */
 static void print_help(const char *prog_name) {
     print_banner();
-    printf("Kullanim: %s [SECENEKLER]\n\n", prog_name);
-    printf("Secenekler:\n");
-    printf("  -c, --config <file>     Konfigurasyon dosyasini yukle (Varsayilan: ./ransom.conf)\n");
-    printf("  -l, --log-file <file>   Servis log dosyasini degistir (Eski: service.log)\n");
-    printf("      --write-limit <n>   Yazma esik degerini (threshold) ezer\n");
-    printf("  -v, --verbose           Detayli hata ayiklama modunu (DEBUG) acar\n");
-    printf("  -V, --version           Surum bilgisini gosterir\n");
-    printf("  -h, --help              Bu yardim mesajini gosterir\n");
-    printf("\nOrnek:\n");
-    printf("  sudo %s --config my.conf --verbose\n", prog_name);
+    printf("Usage: %s [OPTIONS]\n\n", prog_name);
+    printf("Options:\n");
+    printf("  -c, --config <file>     Load configuration from a specific file (Default: ./ransom.conf)\n");
+    printf("  -l, --log-file <file>   Set path for service logs (Overrides config)\n");
+    printf("      --write-limit <n>   Override the write operation threshold (Legacy)\n");
+    printf("  -v, --verbose           Enable verbose debug output to stdout\n");
+    printf("  -V, --version           Display version information and exit\n");
+    printf("  -h, --help              Display this help message and exit\n");
+    printf("\nExamples:\n");
+    printf("  sudo %s --config /etc/ransom-bpf/prod.conf --verbose\n", prog_name);
     printf("  sudo %s --write-limit 50\n", prog_name);
 }
 
+/**
+ * @brief Parses command-line arguments.
+ *
+ * Uses getopt_long to handle short (-c) and long (--config) options.
+ * Updates the global configuration structure based on the arguments.
+ *
+ * @param argc Argument count.
+ * @param argv Argument vector.
+ * @return CLI_ACTION_CONTINUE if execution should proceed,
+ * CLI_ACTION_EXIT if the program should terminate (e.g., after help).
+ */
 int parse_arguments(int argc, char **argv) {
     int opt;
     int option_index = 0;
@@ -64,7 +94,7 @@ int parse_arguments(int argc, char **argv) {
             strncpy(config.config_path, optarg, sizeof(config.config_path) - 1);
             break;
         case 'l':
-            // [DUZELTME] Eski 'log_file' yerine 'service_log' guncelleniyor
+            // Updates service_log path, overriding the legacy 'log_file' setting
             strncpy(config.service_log, optarg, sizeof(config.service_log) - 1);
             break;
         case 1001: // --write-limit
@@ -78,35 +108,42 @@ int parse_arguments(int argc, char **argv) {
     return CLI_ACTION_CONTINUE;
 }
 
+/**
+ * @brief Prints a summary of the active configuration at startup.
+ *
+ * This function provides immediate visual feedback to the operator about
+ * which log files are active, the current PID, and risk scoring parameters.
+ */
 void print_startup_summary() {
     print_banner();
     printf("--------------------------------------------------\n");
-    printf(" AKTIF KONFIGURASYON\n");
+    printf(" ACTIVE CONFIGURATION\n");
     printf("--------------------------------------------------\n");
     printf(" PID            : %d\n", getpid());
-    // [YENI] 3 Log Kanalini Goster
+
+    // Display all 3 log channels
     printf(" Service Log    : %s\n", config.service_log);
     printf(" Alert Log      : %s\n", config.alert_log);
     printf(" Audit Log      : %s\n", config.audit_log);
 
-    printf(" Config Modu    : %s\n", config.verbose_mode ? "DEBUG (Verbose)" : "NORMAL");
+    printf(" Config Mode    : %s\n", config.verbose_mode ? "DEBUG (Verbose)" : "NORMAL");
 
-    // Whitelist cok uzun olabilecegi icin sadece durumunu veya kisaltilmis halini yazalim
+    // Handle whitelist display (truncate if too long)
     if (strlen(config.whitelist_str) > 0) {
         if (strlen(config.whitelist_str) > 50)
-            printf(" Whitelist      : %.47s... (Toplam %ld karakter)\n", config.whitelist_str, strlen(config.whitelist_str));
+            printf(" Whitelist      : %.47s... (Total %ld chars)\n", config.whitelist_str, strlen(config.whitelist_str));
         else
             printf(" Whitelist      : %s\n", config.whitelist_str);
     } else {
-        printf(" Whitelist      : [BOS]\n");
+        printf(" Whitelist      : [EMPTY]\n");
     }
 
     printf("--------------------------------------------------\n");
-    printf(" RISK SKORLAMA MOTORU\n");
+    printf(" RISK SCORING ENGINE\n");
     printf("--------------------------------------------------\n");
-    printf(" Risk Limiti    : %d puan\n", config.risk_threshold);
-    printf(" Write Puani    : %d\n", config.score_write);
-    printf(" Rename Puani   : %d\n", config.score_rename);
-    printf(" Honeypot P.    : %d\n", config.score_honeypot);
+    printf(" Risk Threshold : %d points\n", config.risk_threshold);
+    printf(" Write Score    : %d\n", config.score_write);
+    printf(" Rename Score   : %d\n", config.score_rename);
+    printf(" Honeypot Score : %d\n", config.score_honeypot);
     printf("--------------------------------------------------\n\n");
 }
